@@ -22,14 +22,6 @@ export default function MonitorPage() {
   const [loading, setLoading] = useState(true);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    fetchConversations();
-  }, []);
-
-  useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [selectedConv?.history]);
-
   const fetchConversations = async () => {
     setLoading(true);
     try {
@@ -42,6 +34,14 @@ export default function MonitorPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchConversations();
+  }, []);
+
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [selectedConv?.history]);
 
   const handleSend = async (e: React.FormEvent) => {
     e.preventDefault();

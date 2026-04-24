@@ -15,10 +15,6 @@ export default function LeadsPage() {
   const [leads, setLeads] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    fetchLeads();
-  }, []);
-
   const fetchLeads = async () => {
     setLoading(true);
     try {
@@ -31,6 +27,10 @@ export default function LeadsPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchLeads();
+  }, []);
 
   return (
     <LayoutShell>

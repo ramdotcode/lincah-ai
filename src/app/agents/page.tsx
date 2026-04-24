@@ -33,10 +33,6 @@ export default function AgentsPage() {
     templateId: 'customer_service'
   });
 
-  useEffect(() => {
-    fetchAgents();
-  }, []);
-
   const fetchAgents = async () => {
     setLoading(true);
     try {
@@ -49,6 +45,10 @@ export default function AgentsPage() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    fetchAgents();
+  }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -194,7 +194,7 @@ export default function AgentsPage() {
                     </div>
                     <div>
                         <h2 className="text-xl font-bold text-main">New AI Agent</h2>
-                        <p className="text-xs text-muted-app">Configure your agent's soul</p>
+                        <p className="text-xs text-muted-app">Configure your agent&apos;s soul</p>
                     </div>
                  </div>
                  <button onClick={() => setIsModalOpen(false)} className="p-2 hover:bg-muted rounded-full text-muted-app">

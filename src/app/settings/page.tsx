@@ -43,10 +43,6 @@ function SettingsContent() {
     { role: 'assistant', content: 'Hi! I am your AI assistant. How can I help you today?' }
   ]);
 
-  useEffect(() => {
-    if (botId) fetchBot();
-  }, [botId]);
-
   const fetchBot = async () => {
     setLoading(true);
     try {
@@ -67,6 +63,10 @@ function SettingsContent() {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    if (botId) fetchBot();
+  }, [botId]);
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -240,7 +240,7 @@ function SettingsContent() {
                         <Sparkles className="w-4 h-4" />
                         <h3 className="font-bold text-sm uppercase tracking-wider">AI Agent Behavior</h3>
                     </div>
-                    <p className="text-xs text-muted-app">This is the AI Prompt that defines the AI's speaking style and identity.</p>
+                    <p className="text-xs text-muted-app">This is the AI Prompt that defines the AI&apos;s speaking style and identity.</p>
                     <div className="relative">
                         <textarea 
                             value={bot.system_prompt}
