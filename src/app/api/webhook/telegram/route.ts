@@ -75,12 +75,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // 4. Process with AI
+    // 4. Fetch Knowledge Sources
+    const { data: sources } = await supabaseAdmin
+        .from('knowledge_sources')
+        .select('type, name, content')
+        .eq('bot_id', bot.id);
+    
+    const knowledgeSources = sources?.filter(s => s.content) || [];
+
+    // 5. Process with AI
     const { aiResponse, handoffTriggered } = await processMessage(
       bot.system_prompt,
       conv.history || [],
       messageText,
-      bot.transfer_condition
+      bot.transfer_condition,
+      knowledgeSources
     );
 
     // 5. Update history and status

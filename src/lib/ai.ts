@@ -13,21 +13,55 @@ export interface Message {
   content: string;
 }
 
+export interface KnowledgeSource {
+  type: string;
+  name: string;
+  content: string;
+}
+
 export async function processMessage(
   systemPrompt: string,
   history: Message[],
   userMessage: string,
-  transferCondition: string
+  transferCondition: string,
+  knowledgeSources: KnowledgeSource[] = []
 ) {
   // 0. Limit history to save tokens
   const trimmedHistory = history.slice(-10);
+
+  // Group and Format Knowledge Context
+  let knowledgeContext = '';
+  if (knowledgeSources.length > 0) {
+    const grouped = knowledgeSources.reduce((acc: any, curr) => {
+      if (!acc[curr.type]) acc[curr.type] = [];
+      acc[curr.type].push(curr);
+      return acc;
+    }, {});
+
+    knowledgeContext = Object.entries(grouped)
+      .map(([type, sources]: [string, any]) => {
+        const title = type.toUpperCase();
+        const content = sources.map((s: any) => `[Source: ${s.name}]\n${s.content}`).join('\n\n');
+        return `### ${title}\n${content}`;
+      })
+      .join('\n\n');
+  }
+
+  // Construct enhanced system prompt with knowledge
+  const enhancedSystemPrompt = `
+${systemPrompt}
+
+### BUSINESS KNOWLEDGE & CONTEXT
+The following is the specialized knowledge about the business. Use this as your primary source of truth.
+${knowledgeContext || 'No specific business data provided yet. Use general knowledge if appropriate or ask for clarification.'}
+`.trim();
 
   // Parallel requests to Groq
   const [responseAction, handoffAction] = await Promise.all([
     // 1. Generate response
     groq.chat.completions.create({
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: enhancedSystemPrompt },
         ...trimmedHistory,
         { role: 'user', content: userMessage },
       ],

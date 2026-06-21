@@ -39,3 +39,18 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# documentation
+FEATURE_MAP.md
+lincah-ai-project-status-updated.md
+TASK_LIST.md
+
+
+
+
+# WhatsApp Session
+auth_info_baileys/
+sessions/
+
+# Agent Skills
+/skills

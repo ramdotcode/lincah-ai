@@ -16,10 +16,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
-    const botToken = (conv as any).bots.telegram_token || process.env.TELEGRAM_BOT_TOKEN;
-
-    // Send to Telegram
-    await sendTelegramMessage(botToken, conv.chat_id, text);
+    // Send message based on platform
+    if (conv.platform === 'whatsapp') {
+      // Send to local Baileys bridge
+      await fetch('http://localhost:3001', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: conv.chat_id,
+          text: text
+        })
+      });
+    } else {
+      // Send to Telegram
+      const botToken = (conv as any).bots.telegram_token || process.env.TELEGRAM_BOT_TOKEN;
+      await sendTelegramMessage(botToken, conv.chat_id, text);
+    }
 
     // Update history in DB
     const newHistory = [...(conv.history || []), { role: 'assistant', content: text }];

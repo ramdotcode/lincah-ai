@@ -29,13 +29,27 @@ export async function POST(req: NextRequest) {
 
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { systemPrompt, history, message, transferCondition } = await req.json();
+    const { botId, systemPrompt, history, message, transferCondition } = await req.json();
+
+    // Fetch Knowledge Sources
+    let knowledgeSources: any[] = [];
+    if (botId) {
+        const { data: sources } = await supabaseAdmin
+            .from('knowledge_sources')
+            .select('type, name, content')
+            .eq('bot_id', botId);
+        
+        if (sources) {
+            knowledgeSources = sources.filter(s => s.content);
+        }
+    }
 
     const result = await processMessage(
       systemPrompt,
       history || [],
       message,
-      transferCondition || ''
+      transferCondition || '',
+      knowledgeSources
     );
 
     return NextResponse.json(result);

@@ -18,7 +18,7 @@ async function getSupabase() {
   );
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const supabase = await getSupabase();
   let { data: { user } } = await supabase.auth.getUser();
   
@@ -29,11 +29,16 @@ export async function GET() {
 
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
+  const { searchParams } = new URL(req.url);
+  const botId = searchParams.get('botId');
+
+  if (!botId) return NextResponse.json({ error: 'botId required' }, { status: 400 });
+
   const { data, error } = await supabaseAdmin
-    .from('bots')
+    .from('knowledge_sources')
     .select('*')
-    .eq('user_id', user.id)
-    .order('created_at', { ascending: false });
+    .eq('bot_id', botId)
+    .order('created_at', { ascending: true });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json(data);
@@ -52,47 +57,21 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json();
   
-  // Clean Data: Only send columns that exist in the DB
-  const botData: any = {
-    name: body.name,
-    system_prompt: body.system_prompt,
-    welcome_message: body.welcome_message,
-    transfer_condition: body.transfer_condition,
-    stop_ai_after_handoff: body.stop_ai_after_handoff,
-    silent_handoff: body.silent_handoff,
-    ai_model: body.ai_model,
-    ai_label: body.ai_label,
-    ai_pipeline_status: body.ai_pipeline_status,
-    telegram_token: body.telegram_token,
-    whatsapp_enabled: body.whatsapp_enabled,
-    whatsapp_phone_number: body.whatsapp_phone_number,
-    whatsapp_bot_type: body.whatsapp_bot_type,
-    whatsapp_token: body.whatsapp_token,
-    whatsapp_phone_id: body.whatsapp_phone_id,
-    whatsapp_verify_token: body.whatsapp_verify_token,
-    user_id: user.id,
-    updated_at: new Date().toISOString()
-  };
-
-  // If there's an ID, we include it for UPSERT to work
-  if (body.id) {
-    botData.id = body.id;
-  }
-
   const { data, error } = await supabaseAdmin
-    .from('bots')
-    .upsert(botData)
+    .from('knowledge_sources')
+    .upsert({
+      id: body.id,
+      bot_id: body.bot_id,
+      type: body.type,
+      name: body.name,
+      content: body.content,
+      metadata: body.metadata || {},
+      updated_at: new Date().toISOString()
+    })
     .select()
     .single();
 
-  if (error) {
-    console.error('SUPABASE_UPSERT_ERROR:', error);
-    return NextResponse.json({ 
-      error: error.message, 
-      details: error.details,
-      sent_data: botData
-    }, { status: 400 });
-  }
+  if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json(data);
 }
 
@@ -101,7 +80,7 @@ export async function DELETE(req: NextRequest) {
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 });
 
-  const { error } = await supabaseAdmin.from('bots').delete().eq('id', id);
+  const { error } = await supabaseAdmin.from('knowledge_sources').delete().eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
   return NextResponse.json({ ok: true });
 }

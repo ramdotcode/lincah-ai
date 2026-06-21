@@ -21,10 +21,10 @@ import { useEffect, useState, useRef } from 'react';
 import { supabase } from '@/lib/supabase-client';
 import { motion, AnimatePresence } from 'framer-motion';
 
-const navItems = [
-  { name: 'Chat', icon: MessageSquare, href: '/monitor' },
-  { name: 'Agents', icon: Zap, href: '/agents' },
-  { name: 'CRM', icon: Users, href: '/leads' },
+const modules = [
+  { name: 'Agents', icon: Zap, href: '/agents', root: '/agents' },
+  { name: 'CRM', icon: Users, href: '/monitor', root: '/monitor' },
+  { name: 'Settings', icon: Settings, href: '/settings', root: '/settings' },
 ];
 
 export default function TopNav() {
@@ -70,22 +70,25 @@ export default function TopNav() {
         </div>
 
         <nav className="flex items-center gap-1">
-          {navItems.map((item) => (
-            <Link
-              key={item.name}
-              href={item.href}
-              className={`px-4 py-5 border-b-2 text-sm font-medium transition-all ${
-                pathname === item.href 
-                  ? 'border-blue-600 text-blue-600' 
-                  : 'border-transparent text-muted-app hover:text-main'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <item.icon className="w-4 h-4" />
-                <span className="hidden md:inline">{item.name}</span>
-              </div>
-            </Link>
-          ))}
+          {modules.map((mod) => {
+            const isActive = pathname.startsWith(mod.root) || (mod.name === 'CRM' && pathname === '/leads');
+            return (
+              <Link
+                key={mod.name}
+                href={mod.href}
+                className={`px-4 py-5 border-b-2 text-[10px] font-bold uppercase tracking-widest transition-all ${
+                  isActive 
+                    ? 'border-blue-600 text-blue-600' 
+                    : 'border-transparent text-muted-app hover:text-main'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <mod.icon className="w-3.5 h-3.5" />
+                  <span className="hidden md:inline">{mod.name}</span>
+                </div>
+              </Link>
+            );
+          })}
         </nav>
       </div>
 
