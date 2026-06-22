@@ -175,7 +175,7 @@ export default function WhatsAppStatus({ botId }: Props) {
                                 Aktifkan & Scan QR
                             </button>
                         </motion.div>
-                    ) : error && (
+                    ) : error ? (
                         <motion.div 
                             key="error"
                             initial={{ opacity: 0 }}
