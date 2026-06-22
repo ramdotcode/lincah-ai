@@ -18,8 +18,9 @@ export async function POST(req: NextRequest) {
 
     // Send message based on platform
     if (conv.platform === 'whatsapp') {
-      // Send to local Baileys bridge
-      await fetch('http://localhost:3001', {
+      // Send to Baileys bridge (VPS)
+      const bridgeUrl = process.env.WHATSAPP_BRIDGE_URL || 'http://localhost:3001';
+      await fetch(`${bridgeUrl}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({

@@ -13,8 +13,8 @@ import fs from 'fs';
 import path from 'path';
 
 // CONFIGURATION
-const API_URL = 'http://localhost:3000/api/webhook/whatsapp';
-const BRIDGE_PORT = 3001; 
+const API_URL = process.env.WHATSAPP_HOOK_URL || 'http://localhost:3000/api/webhook/whatsapp';
+const BRIDGE_PORT = Number(process.env.WHATSAPP_BRIDGE_PORT) || 3001; 
 const SESSIONS_DIR = path.join(process.cwd(), 'sessions');
 
 // Initialize sessions directory

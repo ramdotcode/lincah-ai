@@ -35,7 +35,8 @@ export default function WhatsAppStatus({ botId }: Props) {
     const fetchStatus = useCallback(async () => {
         if (!botId) return;
         try {
-            const res = await fetch(`http://localhost:3001/status?botId=${botId}`);
+            const bridgeRoot = process.env.NEXT_PUBLIC_WHATSAPP_BRIDGE_URL || 'http://localhost:3001';
+            const res = await fetch(`${bridgeRoot}/status?botId=${botId}`);
             if (res.ok) {
                 const data = await res.json();
                 setStatus(data);
