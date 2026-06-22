@@ -9,7 +9,9 @@ import {
     Loader2, 
     Phone, 
     RefreshCw,
-    ExternalLink
+    ExternalLink,
+    Zap,
+    RotateCcw
 } from 'lucide-react';
 
 interface WhatsAppStatusData {
@@ -28,19 +30,27 @@ interface Props {
 
 export default function WhatsAppStatus({ botId }: Props) {
     const [status, setStatus] = useState<WhatsAppStatusData | null>(null);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+    const [isActive, setIsActive] = useState(false);
+    const [isRestarting, setIsRestarting] = useState(false);
+
+    const bridgeRoot = process.env.NEXT_PUBLIC_WHATSAPP_BRIDGE_URL || 'http://localhost:3001';
 
     const fetchStatus = useCallback(async () => {
-        if (!botId) return;
+        if (!botId || !isActive) return;
         try {
-            const bridgeRoot = process.env.NEXT_PUBLIC_WHATSAPP_BRIDGE_URL || 'http://localhost:3001';
             const res = await fetch(`${bridgeRoot}/status?botId=${botId}`);
             if (res.ok) {
                 const data = await res.json();
                 setStatus(data);
                 setError(null);
+                
+                // If it's already open, we've found our server
+                if (data.status === 'open') {
+                    setIsActive(true);
+                }
             } else {
                 setError('Bridge server returns error');
             }
@@ -51,13 +61,43 @@ export default function WhatsAppStatus({ botId }: Props) {
             setLoading(false);
             setLastUpdated(new Date());
         }
-    }, [botId]);
+    }, [botId, isActive, bridgeRoot]);
+
+    const activateSession = async () => {
+        setIsActive(true);
+        setLoading(true);
+        try {
+            await fetch(`${bridgeRoot}/start?botId=${botId}`, { method: 'POST' });
+            fetchStatus();
+        } catch (err) {
+            console.error('Failed to start session');
+        }
+    };
+
+    const restartSession = async () => {
+        if (!confirm('Yakin ingin reset sesi dan minta QR baru? Koneksi yang ada akan terputus.')) return;
+        
+        setIsRestarting(true);
+        try {
+            await fetch(`${bridgeRoot}/restart?botId=${botId}`, { method: 'POST' });
+            setStatus(null);
+            setIsActive(true);
+            setLoading(true);
+            fetchStatus();
+        } catch (err) {
+            alert('Gagal restart sesi');
+        } finally {
+            setIsRestarting(false);
+        }
+    };
 
     useEffect(() => {
-        fetchStatus();
-        const interval = setInterval(fetchStatus, 3000);
-        return () => clearInterval(interval);
-    }, [fetchStatus]);
+        if (isActive) {
+            fetchStatus();
+            const interval = setInterval(fetchStatus, 3000);
+            return () => clearInterval(interval);
+        }
+    }, [isActive, fetchStatus]);
 
     const getStatusConfig = (status: string | undefined) => {
         switch (status) {
@@ -87,7 +127,7 @@ export default function WhatsAppStatus({ botId }: Props) {
                     color: 'text-slate-400',
                     bg: 'bg-slate-400/10',
                     icon: <Loader2 className="w-4 h-4 text-slate-400 animate-spin" />,
-                    text: 'Mencari Server'
+                    text: 'Offline'
                 };
         }
     };
@@ -101,15 +141,41 @@ export default function WhatsAppStatus({ botId }: Props) {
                     <QrCode className="w-3 h-3" />
                     WhatsApp Identity
                 </h4>
-                <div className={`flex items-center gap-2 px-2.5 py-1 rounded-full border border-app text-[10px] font-bold ${currentStatus.bg} ${currentStatus.color}`}>
-                    {currentStatus.icon}
-                    {currentStatus.text}
-                </div>
+                {isActive && (
+                    <div className={`flex items-center gap-2 px-2.5 py-1 rounded-full border border-app text-[10px] font-bold ${currentStatus.bg} ${currentStatus.color}`}>
+                        {currentStatus.icon}
+                        {currentStatus.text}
+                    </div>
+                )}
             </div>
 
             <div className="bg-muted/30 border border-app rounded-2xl p-6 overflow-hidden relative group">
                 <AnimatePresence mode="wait">
-                    {error && (
+                    {!isActive ? (
+                        <motion.div 
+                            key="inactive"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="flex flex-col items-center justify-center py-4 space-y-4"
+                        >
+                            <div className="w-16 h-16 rounded-full bg-blue-500/10 flex items-center justify-center border border-blue-500/20">
+                                <Zap className="w-8 h-8 text-blue-500" />
+                            </div>
+                            <div className="text-center space-y-1">
+                                <p className="text-xs font-bold text-main">Integrasi WhatsApp Mati</p>
+                                <p className="text-[10px] text-muted-app leading-relaxed">
+                                    Aktifkan integrasi untuk menerima dan membalas pesan.
+                                </p>
+                            </div>
+                            <button 
+                                onClick={activateSession}
+                                className="px-6 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
+                            >
+                                Aktifkan & Scan QR
+                            </button>
+                        </motion.div>
+                    ) : error && (
                         <motion.div 
                             key="error"
                             initial={{ opacity: 0 }}
@@ -121,13 +187,17 @@ export default function WhatsAppStatus({ botId }: Props) {
                             <div className="space-y-1">
                                 <p className="text-xs font-bold text-main">Bridge Server Offline</p>
                                 <p className="text-[10px] text-muted-app leading-relaxed px-4">
-                                    Jalankan <code className="bg-muted px-1.5 py-0.5 rounded text-rose-400">npm run whatsapp</code> di terminal untuk mengaktifkan integrasi.
+                                    Server WhatsApp di VPS kamu tidak merespon. Pastikan sudah menyalakan <code className="bg-muted px-1.5 py-0.5 rounded text-rose-400">pm2 start wa-worker</code>.
                                 </p>
                             </div>
+                            <button 
+                                onClick={fetchStatus}
+                                className="text-[10px] text-blue-500 font-bold hover:underline"
+                            >
+                                Coba Lagi
+                            </button>
                         </motion.div>
-                    )}
-
-                    {!error && status?.status === 'open' && (
+                    ) : status?.status === 'open' ? (
                         <motion.div 
                             key="connected"
                             initial={{ opacity: 0 }}
@@ -139,18 +209,16 @@ export default function WhatsAppStatus({ botId }: Props) {
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="text-[10px] text-muted-app font-bold uppercase tracking-wider">Terhubung Sebagai</p>
-                                <p className="text-sm font-bold text-main truncate font-mono">{status.user?.id?.split(':')[0] || 'Unknown'}</p>
+                                <p className="text-sm font-bold text-main truncate font-mono">{status?.user?.id?.split(':')[0] || 'Unknown'}</p>
                                 <p className="text-[10px] text-emerald-500 font-medium flex items-center gap-1.5 mt-0.5">
                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
                                     Active & Listening
                                 </p>
                             </div>
                         </motion.div>
-                    )}
-
-                    {!error && status?.status !== 'open' && (
+                    ) : (
                         <motion.div 
-                            key="no-connection"
+                            key="scanning"
                             className="flex flex-col items-center justify-center gap-6"
                         >
                             {status?.qr ? (
@@ -159,7 +227,7 @@ export default function WhatsAppStatus({ botId }: Props) {
                                         <img src={status.qr} alt="WA QR" className="w-32 h-32" />
                                     </div>
                                     <p className="text-[10px] text-muted-app text-center max-w-[200px] leading-relaxed">
-                                        Scan QR ini dengan aplikasi WhatsApp berbeda untuk agent ini.
+                                        Scan QR ini untuk menghubungkan bot.
                                     </p>
                                 </div>
                             ) : (
@@ -179,22 +247,35 @@ export default function WhatsAppStatus({ botId }: Props) {
             </div>
 
             <div className="flex items-center justify-between gap-3 pt-2">
-                <button 
-                    onClick={fetchStatus}
-                    className="flex-1 px-4 py-2 bg-card-app border border-app rounded-xl text-[10px] font-bold text-main hover:bg-muted flex items-center justify-center gap-2 transition-all shadow-sm"
-                >
-                    <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
-                    Refresh
-                </button>
-                <a 
-                    href="https://web.whatsapp.com" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="flex-1 px-4 py-2 bg-blue-500/5 hover:bg-blue-500/10 border border-blue-500/10 rounded-xl text-[10px] font-bold text-blue-600 flex items-center justify-center gap-2 transition-all"
-                >
-                    <ExternalLink className="w-3 h-3" />
-                    Web WA
-                </a>
+                {isActive ? (
+                    <>
+                        <button 
+                            onClick={restartSession}
+                            disabled={isRestarting}
+                            className="flex-1 px-4 py-2 bg-rose-500/5 border border-rose-500/10 rounded-xl text-[10px] font-bold text-rose-500 hover:bg-rose-500/10 flex items-center justify-center gap-2 transition-all disabled:opacity-50"
+                        >
+                            <RotateCcw className={`w-3 h-3 ${isRestarting ? 'animate-spin' : ''}`} />
+                            Reset QR
+                        </button>
+                        <button 
+                            onClick={fetchStatus}
+                            className="flex-1 px-4 py-2 bg-card-app border border-app rounded-xl text-[10px] font-bold text-main hover:bg-muted flex items-center justify-center gap-2 transition-all shadow-sm"
+                        >
+                            <RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} />
+                            Refresh
+                        </button>
+                    </>
+                ) : (
+                    <a 
+                        href="https://web.whatsapp.com" 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="w-full px-4 py-2 bg-blue-500/5 hover:bg-blue-500/10 border border-blue-500/10 rounded-xl text-[10px] font-bold text-blue-600 flex items-center justify-center gap-2 transition-all"
+                    >
+                        <ExternalLink className="w-3 h-3" />
+                        Buka WhatsApp Web
+                    </a>
+                )}
             </div>
         </div>
     );

@@ -90,8 +90,12 @@ async function startSession(botId: string) {
             if (shouldReconnect) {
                 setTimeout(() => startSession(botId), 5000);
             } else {
-                // If logged out, we might want to clean up files
-                console.log(`[Session] Bot ${botId} logged out.`);
+                // If logged out, CLEAN UP files so it's fresh for next QR
+                console.log(`[Session] Bot ${botId} logged out. Cleaning up...`);
+                const sessionDir = path.join(SESSIONS_DIR, `auth_info_${botId}`);
+                if (fs.existsSync(sessionDir)) {
+                    fs.rmSync(sessionDir, { recursive: true, force: true });
+                }
                 sessions.delete(botId);
             }
         } else if (connection === 'open') {
@@ -161,11 +165,6 @@ http.createServer((req, res) => {
             return;
         }
 
-        // Auto start session if not exists and we have it in URL
-        if (!sessions.has(botId)) {
-            startSession(botId);
-        }
-
         const session = sessions.get(botId);
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ 
@@ -197,6 +196,40 @@ http.createServer((req, res) => {
                 res.end(JSON.stringify({ error: err.message }));
             }
         });
+    } else if (req.method === 'POST' && url.pathname === '/start') {
+        if (!botId) {
+            res.writeHead(400); res.end(JSON.stringify({ error: 'botId is required' }));
+            return;
+        }
+        
+        console.log(`[Session] Manual start requested for bot ${botId}`);
+        startSession(botId);
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, message: 'Session starting' }));
+    } else if (req.method === 'POST' && url.pathname === '/restart') {
+        if (!botId) {
+            res.writeHead(400); res.end(JSON.stringify({ error: 'botId is required' }));
+            return;
+        }
+        
+        console.log(`[Session] Force restart requested for bot ${botId}`);
+        const session = sessions.get(botId);
+        if (session?.sock) {
+            try { session.sock.logout(); } catch (e) {}
+        }
+        
+        // Delete session folder to force new QR
+        const sessionDir = path.join(SESSIONS_DIR, `auth_info_${botId}`);
+        if (fs.existsSync(sessionDir)) {
+            fs.rmSync(sessionDir, { recursive: true, force: true });
+        }
+        
+        sessions.delete(botId);
+        startSession(botId);
+        
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, message: 'Session restarted' }));
     } else {
         res.writeHead(404);
         res.end();
