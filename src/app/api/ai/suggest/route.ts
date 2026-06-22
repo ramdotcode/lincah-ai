@@ -24,10 +24,10 @@ export async function POST(req: NextRequest) {
     // 2. Get knowledge context
     const { data: knowledge } = await supabaseAdmin
       .from('knowledge_sources')
-      .select('content')
+      .select('type, name, content')
       .eq('bot_id', (conv as any).bots.id);
     
-    const knowledgeContext = knowledge?.map(k => k.content).join('\n\n') || '';
+    const knowledgeSources = (knowledge || []) as any[];
 
     // 3. Ask AI for a SUGGESTION (different prompt style)
     const systemPrompt = `
@@ -45,7 +45,7 @@ export async function POST(req: NextRequest) {
       conv.history || [],
       "", // No new user message, just processing history
       (conv as any).bots.transfer_condition,
-      knowledgeContext
+      knowledgeSources
     );
 
     return NextResponse.json({ suggestion: aiResponse });
