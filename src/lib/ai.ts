@@ -3,6 +3,7 @@ if (typeof window !== 'undefined') {
 }
 
 import Groq from 'groq-sdk';
+import * as Sentry from '@sentry/nextjs';
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -19,13 +20,22 @@ export interface KnowledgeSource {
   content: string;
 }
 
+export interface ProcessMessageResult {
+  aiResponse: string;
+  handoffTriggered: boolean;
+  latencyMainMs?: number;
+  latencyHandoffMs?: number;
+  promptTokens?: number;
+  completionTokens?: number;
+}
+
 export async function processMessage(
   systemPrompt: string,
   history: Message[],
   userMessage: string,
   transferCondition: string,
   knowledgeSources: KnowledgeSource[] = []
-) {
+): Promise<ProcessMessageResult> {
   // 0. Limit history to save tokens
   const trimmedHistory = history.slice(-10);
 
@@ -56,40 +66,109 @@ The following is the specialized knowledge about the business. Use this as your 
 ${knowledgeContext || 'No specific business data provided yet. Use general knowledge if appropriate or ask for clarification.'}
 `.trim();
 
-  // Parallel requests to Groq
-  const [responseAction, handoffAction] = await Promise.all([
+  // Measure latency for both parallel requests
+  let latencyMainMs = 0;
+  let latencyHandoffMs = 0;
+  let promptTokens = 0;
+  let completionTokens = 0;
+
+  // Parallel requests to Groq with error handling
+  const results = await Promise.allSettled([
     // 1. Generate response
-    groq.chat.completions.create({
-      messages: [
-        { role: 'system', content: enhancedSystemPrompt },
-        ...trimmedHistory,
-        { role: 'user', content: userMessage },
-      ],
-      model: 'llama-3.3-70b-versatile',
-      temperature: 0.7,
-    }),
+    (async () => {
+      const startTime = performance.now();
+      try {
+        const response = await groq.chat.completions.create({
+          messages: [
+            { role: 'system', content: enhancedSystemPrompt },
+            ...trimmedHistory,
+            { role: 'user', content: userMessage },
+          ],
+          model: 'llama-3.3-70b-versatile',
+          temperature: 0.7,
+        });
+        latencyMainMs = Math.round(performance.now() - startTime);
+        // Capture tokens from main model
+        if (response.usage) {
+          promptTokens = response.usage.prompt_tokens;
+          completionTokens = response.usage.completion_tokens;
+        }
+        return response;
+      } catch (error) {
+        latencyMainMs = Math.round(performance.now() - startTime);
+        Sentry.captureException(error, {
+          tags: {
+            model: 'llama-3.3-70b-versatile',
+            error_type: error instanceof Error && error.message.includes('429') ? 'rate_limit' :
+                       error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'other',
+          },
+          contexts: {
+            groq_api: {
+              model: 'llama-3.3-70b-versatile',
+              message_count: trimmedHistory.length,
+            },
+          },
+        });
+        throw error;
+      }
+    })(),
     // 2. Check for handoff
-    groq.chat.completions.create({
-      messages: [
-        {
-          role: 'system',
-          content: `You are a handoff checker. Your job is to determine if the user's latest message or conversation context triggers the handoff condition. 
+    (async () => {
+      const startTime = performance.now();
+      try {
+        const response = await groq.chat.completions.create({
+          messages: [
+            {
+              role: 'system',
+              content: `You are a handoff checker. Your job is to determine if the user's latest message or conversation context triggers the handoff condition.
 Condition: "${transferCondition}"
 Reply ONLY with "YES" or "NO".`,
-        },
-        ...trimmedHistory,
-        { role: 'user', content: userMessage },
-      ],
-      model: 'llama-3.1-8b-instant',
-      temperature: 0,
-    }),
+            },
+            ...trimmedHistory,
+            { role: 'user', content: userMessage },
+          ],
+          model: 'llama-3.1-8b-instant',
+          temperature: 0,
+        });
+        latencyHandoffMs = Math.round(performance.now() - startTime);
+        return response;
+      } catch (error) {
+        latencyHandoffMs = Math.round(performance.now() - startTime);
+        Sentry.captureException(error, {
+          tags: {
+            model: 'llama-3.1-8b-instant',
+            error_type: error instanceof Error && error.message.includes('429') ? 'rate_limit' :
+                       error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'other',
+          },
+          contexts: {
+            groq_api: {
+              model: 'llama-3.1-8b-instant',
+              message_count: trimmedHistory.length,
+            },
+          },
+        });
+        throw error;
+      }
+    })(),
   ]);
 
-  const aiResponse = responseAction.choices[0]?.message?.content || '';
-  const handoffTriggered = handoffAction.choices[0]?.message?.content?.toUpperCase().includes('YES') || false;
+  let aiResponse = '';
+  let handoffTriggered = false;
+
+  if (results[0].status === 'fulfilled') {
+    aiResponse = results[0].value.choices[0]?.message?.content || '';
+  }
+
+  if (results[1].status === 'fulfilled') {
+    handoffTriggered = results[1].value.choices[0]?.message?.content?.toUpperCase().includes('YES') || false;
+  }
 
   return {
     aiResponse,
     handoffTriggered,
+    latencyMainMs,
+    latencyHandoffMs,
+    promptTokens,
+    completionTokens,
   };
 }

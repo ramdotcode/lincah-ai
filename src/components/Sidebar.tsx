@@ -1,17 +1,18 @@
 'use client';
 
-import { 
-  MessageSquare, 
-  Ticket, 
-  Phone, 
-  BarChart3, 
-  BookOpen, 
-  Send, 
-  Bot, 
-  Link as LinkIcon, 
+import {
+  MessageSquare,
+  Ticket,
+  Phone,
+  BarChart3,
+  BookOpen,
+  Send,
+  Bot,
+  Link as LinkIcon,
   GitBranch,
   Settings,
-  Users
+  Users,
+  HeartPulse
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -30,6 +31,7 @@ const sidebarModules: Record<string, any[]> = {
     { icon: BookOpen, href: '/leads', label: 'Lead Database' },
     { icon: Ticket, href: '/tickets', label: 'Support Tickets' },
     { icon: BarChart3, href: '/stats', label: 'Analytics' },
+    { icon: HeartPulse, href: '/admin/health', label: 'System Health' },
     { icon: Send, href: '/broadcasts', label: 'Broadcasts' },
   ],
   settings: [
@@ -46,7 +48,7 @@ export default function Sidebar() {
   // Determine active module
   const activeModule = pathname.startsWith('/agents') || pathname.startsWith('/knowledge') || pathname.startsWith('/flow')
     ? 'agents'
-    : pathname.startsWith('/monitor') || pathname.startsWith('/leads') || pathname.startsWith('/stats') || pathname.startsWith('/tickets') || pathname.startsWith('/broadcasts')
+    : pathname.startsWith('/monitor') || pathname.startsWith('/leads') || pathname.startsWith('/stats') || pathname.startsWith('/tickets') || pathname.startsWith('/broadcasts') || pathname.startsWith('/admin')
     ? 'crm'
     : 'settings';
 

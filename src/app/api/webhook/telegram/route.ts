@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
+import * as Sentry from '@sentry/nextjs';
 import { supabaseAdmin } from '@/lib/supabase';
 import { processMessage } from '@/lib/ai';
 import { sendTelegramMessage } from '@/lib/telegram';
+import { logEvent } from '@/lib/eventLog';
 
 export async function POST(req: NextRequest) {
   try {
@@ -10,6 +12,11 @@ export async function POST(req: NextRequest) {
 
     if (!payload.message) {
       return NextResponse.json({ ok: true });
+    }
+
+    // DEV-ONLY: test error handling by setting SENTRY_TEST=true in env
+    if (process.env.SENTRY_TEST === 'true' && payload.message.text?.includes('TEST_SENTRY_ERROR')) {
+      throw new Error('Intentional test error for Sentry integration');
     }
 
     const { chat, text, from } = payload.message;
@@ -71,7 +78,7 @@ export async function POST(req: NextRequest) {
         history: [...(conv.history || []), { role: 'user', content: messageText }],
         last_message_at: new Date().toISOString(),
       }).eq('id', conv.id);
-      
+
       return NextResponse.json({ ok: true });
     }
 
@@ -80,11 +87,11 @@ export async function POST(req: NextRequest) {
         .from('knowledge_sources')
         .select('type, name, content')
         .eq('bot_id', bot.id);
-    
+
     const knowledgeSources = sources?.filter(s => s.content) || [];
 
-    // 5. Process with AI
-    const { aiResponse, handoffTriggered } = await processMessage(
+    // 5. Process with AI (now returns latency & token metrics)
+    const aiResult = await processMessage(
       bot.system_prompt,
       conv.history || [],
       messageText,
@@ -92,11 +99,24 @@ export async function POST(req: NextRequest) {
       knowledgeSources
     );
 
-    // 5. Update history and status
+    // Log event to observability (fire-and-forget)
+    logEvent({
+      bot_id: bot.id,
+      conversation_id: conv.id,
+      channel: 'telegram',
+      event_type: 'message_processed',
+      latency_main_ms: aiResult.latencyMainMs,
+      latency_handoff_ms: aiResult.latencyHandoffMs,
+      prompt_tokens: aiResult.promptTokens,
+      completion_tokens: aiResult.completionTokens,
+      handoff_result: aiResult.handoffTriggered,
+    });
+
+    // 6. Update history and status
     const newHistory = [
       ...(conv.history || []),
       { role: 'user', content: messageText },
-      { role: 'assistant', content: aiResponse },
+      { role: 'assistant', content: aiResult.aiResponse },
     ];
 
     const updateData: any = {
@@ -104,30 +124,61 @@ export async function POST(req: NextRequest) {
       last_message_at: new Date().toISOString(),
     };
 
-    if (handoffTriggered) {
+    if (aiResult.handoffTriggered) {
       updateData.status = 'pending';
       updateData.handoff_at = new Date().toISOString();
     }
 
     await supabaseAdmin.from('conversations').update(updateData).eq('id', conv.id);
 
-    // 6. Send response back to Telegram if not silent handoff or if still active
-    if (!handoffTriggered || !bot.silent_handoff) {
-        await sendTelegramMessage(bot.telegram_token || process.env.TELEGRAM_BOT_TOKEN!, chatId, aiResponse);
+    // 7. Send response back to Telegram if not silent handoff or if still active
+    if (!aiResult.handoffTriggered || !bot.silent_handoff) {
+        await sendTelegramMessage(bot.telegram_token || process.env.TELEGRAM_BOT_TOKEN!, chatId, aiResult.aiResponse);
     }
 
-    // 7. If handoff triggered, optionally notify owner
-    if (handoffTriggered && process.env.OWNER_CHAT_ID) {
+    // 8. If handoff triggered, optionally notify owner
+    if (aiResult.handoffTriggered && process.env.OWNER_CHAT_ID) {
       await sendTelegramMessage(
-        bot.telegram_token || process.env.TELEGRAM_BOT_TOKEN!, 
-        process.env.OWNER_CHAT_ID, 
+        bot.telegram_token || process.env.TELEGRAM_BOT_TOKEN!,
+        process.env.OWNER_CHAT_ID,
         `🚨 HANDOFF TRIGGERED for user ${conv.name} (@${conv.username})\n\nMessage: ${messageText}`
       );
     }
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
-    console.error('Webhook Error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    console.error('Telegram Webhook Error:', error);
+
+    // Extract bot_id from context if available (may be undefined if error before bot fetch)
+    let botId = undefined;
+    try {
+      const payload = await req.json().catch(() => ({}));
+      const chatId = payload.message?.chat?.id?.toString();
+      if (chatId) {
+        const { data: bot } = await supabaseAdmin
+          .from('bots')
+          .select('id')
+          .limit(1)
+          .single();
+        botId = bot?.id;
+      }
+    } catch (_) {
+      // ignore if we can't extract bot_id
+    }
+
+    Sentry.captureException(error, {
+      tags: {
+        bot_id: botId || 'unknown',
+        channel: 'telegram',
+      },
+      contexts: {
+        webhook: {
+          type: 'telegram',
+        },
+      },
+    });
+
+    // Always return 200 to prevent webhook retry storms
+    return NextResponse.json({ ok: true });
   }
 }

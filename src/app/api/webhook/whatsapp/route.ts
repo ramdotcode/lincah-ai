@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
+import * as Sentry from '@sentry/nextjs';
 import { supabaseAdmin } from '@/lib/supabase';
 import { processMessage } from '@/lib/ai';
+import { logEvent } from '@/lib/eventLog';
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,6 +13,11 @@ export async function POST(req: NextRequest) {
     // But for Baileys/Local Bridge we focus on POST
 
     const { from, name, text, bot_phone, bot_id } = payload;
+
+    // DEV-ONLY: test error handling by setting SENTRY_TEST=true in env
+    if (process.env.SENTRY_TEST === 'true' && text?.includes('TEST_SENTRY_ERROR')) {
+      throw new Error('Intentional test error for Sentry integration');
+    }
 
     if (!text || !from) {
       return NextResponse.json({ ok: true });
@@ -55,7 +62,6 @@ export async function POST(req: NextRequest) {
           bot_id: bot.id,
           chat_id: from,
           name: name || from,
-          platform: 'whatsapp',
           history: [],
           status: 'active',
         })
@@ -69,62 +75,91 @@ export async function POST(req: NextRequest) {
       conv = newConv;
     }
 
-    // 3. Logic based on status (Handoff)
+    // 3. Logic based on status
     if (conv.status === 'pending' || (conv.status === 'closed' && bot.stop_ai_after_handoff)) {
       await supabaseAdmin.from('conversations').update({
         history: [...(conv.history || []), { role: 'user', content: text }],
-        last_message: text,
         last_message_at: new Date().toISOString(),
       }).eq('id', conv.id);
-      
-      return NextResponse.json({ ok: true, mode: 'manual' });
+      return NextResponse.json({ ok: true });
     }
 
-    // 4. Process with AI
-    // Get knowledge sources for this bot (if implemented)
-    const { data: knowledge } = await supabaseAdmin
+    // 4. Fetch Knowledge Sources
+    const { data: sources } = await supabaseAdmin
       .from('knowledge_sources')
       .select('type, name, content')
       .eq('bot_id', bot.id);
-    
-    const { aiResponse, handoffTriggered } = await processMessage(
+
+    const knowledgeSources = sources?.filter(s => s.content) || [];
+
+    // 5. Process with AI (now returns latency & token metrics)
+    const aiResult = await processMessage(
       bot.system_prompt,
       conv.history || [],
       text,
       bot.transfer_condition,
-      knowledge || []
+      knowledgeSources
     );
 
-    // 5. Update history and status
+    // Log event to observability (fire-and-forget)
+    logEvent({
+      bot_id: bot.id,
+      conversation_id: conv.id,
+      channel: 'whatsapp',
+      event_type: 'message_processed',
+      latency_main_ms: aiResult.latencyMainMs,
+      latency_handoff_ms: aiResult.latencyHandoffMs,
+      prompt_tokens: aiResult.promptTokens,
+      completion_tokens: aiResult.completionTokens,
+      handoff_result: aiResult.handoffTriggered,
+    });
+
+    // 6. Update history and status
     const newHistory = [
       ...(conv.history || []),
       { role: 'user', content: text },
-      { role: 'assistant', content: aiResponse },
+      { role: 'assistant', content: aiResult.aiResponse },
     ];
 
     const updateData: any = {
       history: newHistory,
-      last_message: aiResponse,
       last_message_at: new Date().toISOString(),
     };
 
-    if (handoffTriggered) {
+    if (aiResult.handoffTriggered) {
       updateData.status = 'pending';
       updateData.handoff_at = new Date().toISOString();
     }
 
     await supabaseAdmin.from('conversations').update(updateData).eq('id', conv.id);
 
-    // 6. Return response to the bridge
-    return NextResponse.json({ 
-      ok: true, 
-      reply: aiResponse,
-      handoff: handoffTriggered 
-    });
-
+    // 7. Return reply to bridge (which will send via WhatsApp)
+    return NextResponse.json({ reply: aiResult.aiResponse });
   } catch (error: any) {
     console.error('WhatsApp Webhook Error:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+
+    let botId = undefined;
+    try {
+      const payload = await req.json().catch(() => ({}));
+      botId = payload.bot_id;
+    } catch (_) {
+      // ignore
+    }
+
+    Sentry.captureException(error, {
+      tags: {
+        bot_id: botId || 'unknown',
+        channel: 'whatsapp',
+      },
+      contexts: {
+        webhook: {
+          type: 'whatsapp',
+        },
+      },
+    });
+
+    // Always return 200 to prevent webhook retry storms
+    return NextResponse.json({ ok: true });
   }
 }
 
