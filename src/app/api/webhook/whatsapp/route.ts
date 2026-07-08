@@ -3,9 +3,18 @@ import * as Sentry from '@sentry/nextjs';
 import { supabaseAdmin } from '@/lib/supabase';
 import { processMessage } from '@/lib/ai';
 import { logEvent } from '@/lib/eventLog';
+import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
   try {
+    // Verify webhook origin: the bridge sends a shared token header
+    if (process.env.BRIDGE_SHARED_TOKEN) {
+      const token = req.headers.get('x-bridge-token');
+      if (token !== process.env.BRIDGE_SHARED_TOKEN) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+    }
+
     const payload = await req.json();
     console.log('WhatsApp Webhook Payload:', JSON.stringify(payload, null, 2));
 
@@ -81,6 +90,30 @@ export async function POST(req: NextRequest) {
         history: [...(conv.history || []), { role: 'user', content: text }],
         last_message_at: new Date().toISOString(),
       }).eq('id', conv.id);
+      return NextResponse.json({ ok: true });
+    }
+
+    // 3.5 Rate limiting: keep the message in history but skip AI processing.
+    // Always return 200 — an error status would make the bridge retry and worsen the flood.
+    const rateLimit = await checkRateLimit('whatsapp', from, bot.id);
+    if (rateLimit.limited) {
+      await supabaseAdmin.from('conversations').update({
+        history: [...(conv.history || []), { role: 'user', content: text }],
+        last_message_at: new Date().toISOString(),
+      }).eq('id', conv.id);
+
+      logEvent({
+        bot_id: bot.id,
+        conversation_id: conv.id,
+        channel: 'whatsapp',
+        event_type: 'rate_limited',
+        metadata: { reason: rateLimit.reason, sender_id: from },
+      });
+
+      // Reply only once per window; otherwise stay silent
+      if (rateLimit.shouldNotify) {
+        return NextResponse.json({ reply: RATE_LIMIT_REPLY });
+      }
       return NextResponse.json({ ok: true });
     }
 

@@ -218,7 +218,12 @@ async function startSession(botId: string) {
         try {
             const response = await fetch(API_URL, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: {
+                    'Content-Type': 'application/json',
+                    ...(process.env.BRIDGE_SHARED_TOKEN
+                        ? { 'x-bridge-token': process.env.BRIDGE_SHARED_TOKEN }
+                        : {})
+                },
                 body: JSON.stringify({
                     bot_id: botId,
                     from: senderPhone,

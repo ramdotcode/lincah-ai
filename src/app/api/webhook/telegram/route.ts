@@ -4,9 +4,18 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { processMessage } from '@/lib/ai';
 import { sendTelegramMessage } from '@/lib/telegram';
 import { logEvent } from '@/lib/eventLog';
+import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
 
 export async function POST(req: NextRequest) {
   try {
+    // Verify webhook origin: Telegram echoes back the secret_token registered via setWebhook
+    if (process.env.TELEGRAM_WEBHOOK_SECRET) {
+      const secret = req.headers.get('x-telegram-bot-api-secret-token');
+      if (secret !== process.env.TELEGRAM_WEBHOOK_SECRET) {
+        return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+      }
+    }
+
     const payload = await req.json();
     console.log('Telegram Webhook Payload:', JSON.stringify(payload, null, 2));
 
@@ -78,6 +87,30 @@ export async function POST(req: NextRequest) {
         history: [...(conv.history || []), { role: 'user', content: messageText }],
         last_message_at: new Date().toISOString(),
       }).eq('id', conv.id);
+
+      return NextResponse.json({ ok: true });
+    }
+
+    // 3.5 Rate limiting: keep the message in history but skip AI processing.
+    // Always return 200 — a 429 would make Telegram retry and worsen the flood.
+    const rateLimit = await checkRateLimit('telegram', chatId, bot.id);
+    if (rateLimit.limited) {
+      await supabaseAdmin.from('conversations').update({
+        history: [...(conv.history || []), { role: 'user', content: messageText }],
+        last_message_at: new Date().toISOString(),
+      }).eq('id', conv.id);
+
+      logEvent({
+        bot_id: bot.id,
+        conversation_id: conv.id,
+        channel: 'telegram',
+        event_type: 'rate_limited',
+        metadata: { reason: rateLimit.reason, sender_id: chatId },
+      });
+
+      if (rateLimit.shouldNotify) {
+        await sendTelegramMessage(bot.telegram_token || process.env.TELEGRAM_BOT_TOKEN!, chatId, RATE_LIMIT_REPLY);
+      }
 
       return NextResponse.json({ ok: true });
     }

@@ -4,7 +4,7 @@ export interface EventLogPayload {
   bot_id: string;
   conversation_id?: string;
   channel: 'telegram' | 'whatsapp';
-  event_type: 'message_processed' | 'ai_error' | 'webhook_error' | 'handoff';
+  event_type: 'message_processed' | 'ai_error' | 'webhook_error' | 'handoff' | 'rate_limited';
   latency_main_ms?: number;
   latency_handoff_ms?: number;
   prompt_tokens?: number;
