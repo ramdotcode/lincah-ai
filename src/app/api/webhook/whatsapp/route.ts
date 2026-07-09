@@ -131,7 +131,8 @@ export async function POST(req: NextRequest) {
       conv.history || [],
       text,
       bot.transfer_condition,
-      knowledgeSources
+      knowledgeSources,
+      bot.ai_model || "standard"
     );
 
     // Log event to observability (fire-and-forget)

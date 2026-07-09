@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
 
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    const { botId, systemPrompt, history, message, transferCondition } = await req.json();
+    const { botId, systemPrompt, history, message, transferCondition, aiModel } = await req.json();
 
     // Fetch Knowledge Sources
     let knowledgeSources: any[] = [];
@@ -49,7 +49,8 @@ export async function POST(req: NextRequest) {
       history || [],
       message,
       transferCondition || '',
-      knowledgeSources
+      knowledgeSources,
+      aiModel || 'standard'
     );
 
     return NextResponse.json(result);

@@ -89,7 +89,8 @@ function SettingsContent() {
                 systemPrompt: bot.system_prompt,
                 history: chatHistory.slice(-5), // Only last 5 messages for context
                 message: userMsg,
-                transferCondition: bot.transfer_condition
+                transferCondition: bot.transfer_condition,
+                aiModel: bot.ai_model || 'standard'
             })
         });
 

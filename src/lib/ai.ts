@@ -29,15 +29,36 @@ export interface ProcessMessageResult {
   completionTokens?: number;
 }
 
+// Model configuration based on ai_model selection
+const MODEL_CONFIG = {
+  standard: {
+    main: 'llama-3.1-8b-instant',      // Faster, lightweight
+    handoff: 'llama-3.1-8b-instant',
+    temperature: 0.7,
+  },
+  advance: {
+    main: 'llama-3.3-70b-versatile',   // More capable, better reasoning
+    handoff: 'llama-3.1-8b-instant',
+    temperature: 0.7,
+  },
+};
+
 export async function processMessage(
   systemPrompt: string,
   history: Message[],
   userMessage: string,
   transferCondition: string,
-  knowledgeSources: KnowledgeSource[] = []
+  knowledgeSources: KnowledgeSource[] = [],
+  aiModel: string = 'standard'
 ): Promise<ProcessMessageResult> {
   // 0. Limit history to save tokens
   const trimmedHistory = history.slice(-10);
+
+  // Select model configuration
+  const config = MODEL_CONFIG[aiModel as keyof typeof MODEL_CONFIG] || MODEL_CONFIG.standard;
+  const mainModel = config.main;
+  const handoffModel = config.handoff;
+  const temperature = config.temperature;
 
   // Group and Format Knowledge Context
   let knowledgeContext = '';
@@ -84,8 +105,8 @@ ${knowledgeContext || 'No specific business data provided yet. Use general knowl
             ...trimmedHistory,
             { role: 'user', content: userMessage },
           ],
-          model: 'llama-3.3-70b-versatile',
-          temperature: 0.7,
+          model: mainModel,
+          temperature: temperature,
         });
         latencyMainMs = Math.round(performance.now() - startTime);
         // Capture tokens from main model
@@ -98,13 +119,14 @@ ${knowledgeContext || 'No specific business data provided yet. Use general knowl
         latencyMainMs = Math.round(performance.now() - startTime);
         Sentry.captureException(error, {
           tags: {
-            model: 'llama-3.3-70b-versatile',
+            model: mainModel,
             error_type: error instanceof Error && error.message.includes('429') ? 'rate_limit' :
                        error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'other',
           },
           contexts: {
             groq_api: {
-              model: 'llama-3.3-70b-versatile',
+              model: mainModel,
+              ai_model_selected: aiModel,
               message_count: trimmedHistory.length,
             },
           },
@@ -127,7 +149,7 @@ Reply ONLY with "YES" or "NO".`,
             ...trimmedHistory,
             { role: 'user', content: userMessage },
           ],
-          model: 'llama-3.1-8b-instant',
+          model: handoffModel,
           temperature: 0,
         });
         latencyHandoffMs = Math.round(performance.now() - startTime);
@@ -136,13 +158,14 @@ Reply ONLY with "YES" or "NO".`,
         latencyHandoffMs = Math.round(performance.now() - startTime);
         Sentry.captureException(error, {
           tags: {
-            model: 'llama-3.1-8b-instant',
+            model: handoffModel,
             error_type: error instanceof Error && error.message.includes('429') ? 'rate_limit' :
                        error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'other',
           },
           contexts: {
             groq_api: {
-              model: 'llama-3.1-8b-instant',
+              model: handoffModel,
+              ai_model_selected: aiModel,
               message_count: trimmedHistory.length,
             },
           },
