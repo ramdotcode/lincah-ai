@@ -59,22 +59,28 @@ export interface ProcessMessageResult {
 
 // Model configuration based on ai_model selection
 const MODEL_CONFIG = {
-  standard: {
+  groq: {
     provider: 'groq',
-    main: 'llama-3.1-8b-instant',      // Faster, lightweight
+    main: 'llama-3.3-70b-versatile',    // Groq's most capable model
     handoff: 'llama-3.1-8b-instant',
     temperature: 0.7,
   },
-  advance: {
-    provider: 'groq',
-    main: 'llama-3.3-70b-versatile',   // More capable, better reasoning
-    handoff: 'llama-3.1-8b-instant',
+  deepseek: {
+    provider: 'nvidia',
+    main: 'deepseek-v4-flash',          // DeepSeek v4 Flash via NIM
+    handoff: 'deepseek-v4-flash',
+    temperature: 0.7,
+  },
+  zai: {
+    provider: 'nvidia',
+    main: 'glm-5.2',                    // Z.AI GLM 5.2 via NIM
+    handoff: 'glm-5.2',
     temperature: 0.7,
   },
   nvidia: {
     provider: 'nvidia',
-    main: 'llama-3.1-405b-instruct-nv', // Largest, most powerful
-    handoff: 'llama-3.1-8b-instruct-nv', // Faster for handoff detection
+    main: 'nemotron-3-ultra-550b',      // Nvidia Nemotron 3 Ultra
+    handoff: 'nemotron-3-ultra-550b',
     temperature: 0.7,
   },
 };
@@ -85,13 +91,13 @@ export async function processMessage(
   userMessage: string,
   transferCondition: string,
   knowledgeSources: KnowledgeSource[] = [],
-  aiModel: string = 'standard'
+  aiModel: string = 'groq'
 ): Promise<ProcessMessageResult> {
   // 0. Limit history to save tokens
   const trimmedHistory = history.slice(-10);
 
   // Select model configuration
-  const config = MODEL_CONFIG[aiModel as keyof typeof MODEL_CONFIG] || MODEL_CONFIG.standard;
+  const config = MODEL_CONFIG[aiModel as keyof typeof MODEL_CONFIG] || MODEL_CONFIG.groq;
   const mainModel = config.main;
   const handoffModel = config.handoff;
   const temperature = config.temperature;

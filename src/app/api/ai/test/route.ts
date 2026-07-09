@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       message,
       transferCondition || '',
       knowledgeSources,
-      aiModel || 'standard'
+      aiModel || 'groq'
     );
 
     return NextResponse.json(result);

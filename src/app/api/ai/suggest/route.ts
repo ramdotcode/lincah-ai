@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
       "", // No new user message, just processing history
       (conv as any).bots.transfer_condition,
       knowledgeSources,
-      (conv as any).bots.ai_model || 'standard'
+      (conv as any).bots.ai_model || 'groq'
     );
 
     return NextResponse.json({ suggestion: aiResponse });
