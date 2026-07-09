@@ -344,7 +344,7 @@ function SettingsContent() {
                         <Zap className="w-4 h-4 text-orange-500" />
                         AI Actions
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         <div className="space-y-2">
                             <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest pl-1">Change Conversation Label</label>
                             <select className="w-full bg-card-app border border-app rounded-xl px-4 py-2.5 text-xs outline-none focus:border-blue-500/50 appearance-none cursor-pointer">
@@ -372,7 +372,7 @@ function SettingsContent() {
                         <Cpu className="w-4 h-4 text-zinc-500" />
                         AI Model Settings
                     </h3>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-3 gap-4">
                         <button 
                             onClick={() => setBot({...bot, ai_model: 'standard'})}
                             className={`p-6 rounded-[2rem] border-2 text-left transition-all ${
@@ -389,7 +389,7 @@ function SettingsContent() {
                                 </div>}
                             </div>
                             <h4 className="text-sm font-bold text-main">Standard</h4>
-                            <p className="text-[10px] text-muted-app mt-1">Llama 3.1 - Fast & Efficient</p>
+                            <p className="text-[10px] text-muted-app mt-1">Llama 3.1 - Fast</p>
                         </button>
 
                         <button 
@@ -408,7 +408,26 @@ function SettingsContent() {
                                 </div>}
                             </div>
                             <h4 className="text-sm font-bold text-main">Advance</h4>
-                            <p className="text-[10px] text-muted-app mt-1">Llama 3.3 - Smart & Reasoning</p>
+                            <p className="text-[10px] text-muted-app mt-1">Llama 3.3 - Smart</p>
+                        </button>
+
+                        <button 
+                            onClick={() => setBot({...bot, ai_model: 'nvidia'})}
+                            className={`p-6 rounded-[2rem] border-2 text-left transition-all ${
+                            bot.ai_model === 'nvidia' 
+                            ? 'border-green-600 bg-green-50/50 dark:bg-green-900/10' 
+                            : 'border-app bg-card-app hover:border-gray-300'
+                        }`}>
+                            <div className="flex justify-between items-start mb-4">
+                                <span className="p-2 bg-green-100 dark:bg-green-900/40 rounded-xl text-green-600">
+                                    <Zap className="w-4 h-4" />
+                                </span>
+                                {bot.ai_model === 'nvidia' && <div className="w-4 h-4 rounded-full bg-green-600 flex items-center justify-center">
+                                    <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
+                                </div>}
+                            </div>
+                            <h4 className="text-sm font-bold text-main">Nvidia NIM</h4>
+                            <p className="text-[10px] text-muted-app mt-1">Llama 3.1 405B - Powerful</p>
                         </button>
                     </div>
                 </div>
@@ -466,7 +485,7 @@ function SettingsContent() {
                       <div className="space-y-6">
                         <div className="space-y-4">
                           <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest px-1">Integration Type</label>
-                          <div className="grid grid-cols-2 gap-4">
+                          <div className="grid grid-cols-3 gap-4">
                             <button 
                               onClick={() => setBot({...bot, whatsapp_bot_type: 'baileys'})}
                               className={`p-4 rounded-2xl border-2 text-left transition-all ${

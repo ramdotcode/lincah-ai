@@ -9,6 +9,34 @@ const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
 });
 
+// Nvidia NIM client using fetch
+const nvidiaClient = {
+  baseUrl: process.env.NVIDIA_NIM_BASE_URL || 'https://api.nims.nvidia.com/v1',
+  apiKey: process.env.NVIDIA_NIM_API_KEY,
+  
+  async chatCompletions(payload: any) {
+    if (!this.apiKey) {
+      throw new Error('NVIDIA_NIM_API_KEY is not configured');
+    }
+    
+    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${this.apiKey}`,
+      },
+      body: JSON.stringify(payload),
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`Nvidia NIM API error: ${response.status} - ${error}`);
+    }
+
+    return response.json();
+  },
+};
+
 export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -32,13 +60,21 @@ export interface ProcessMessageResult {
 // Model configuration based on ai_model selection
 const MODEL_CONFIG = {
   standard: {
+    provider: 'groq',
     main: 'llama-3.1-8b-instant',      // Faster, lightweight
     handoff: 'llama-3.1-8b-instant',
     temperature: 0.7,
   },
   advance: {
+    provider: 'groq',
     main: 'llama-3.3-70b-versatile',   // More capable, better reasoning
     handoff: 'llama-3.1-8b-instant',
+    temperature: 0.7,
+  },
+  nvidia: {
+    provider: 'nvidia',
+    main: 'llama-3.1-405b-instruct-nv', // Largest, most powerful
+    handoff: 'llama-3.1-8b-instruct-nv', // Faster for handoff detection
     temperature: 0.7,
   },
 };
@@ -59,6 +95,7 @@ export async function processMessage(
   const mainModel = config.main;
   const handoffModel = config.handoff;
   const temperature = config.temperature;
+  const provider = config.provider;
 
   // Group and Format Knowledge Context
   let knowledgeContext = '';
@@ -93,21 +130,38 @@ ${knowledgeContext || 'No specific business data provided yet. Use general knowl
   let promptTokens = 0;
   let completionTokens = 0;
 
-  // Parallel requests to Groq with error handling
+  // Parallel requests with error handling
   const results = await Promise.allSettled([
     // 1. Generate response
     (async () => {
       const startTime = performance.now();
       try {
-        const response = await groq.chat.completions.create({
-          messages: [
-            { role: 'system', content: enhancedSystemPrompt },
-            ...trimmedHistory,
-            { role: 'user', content: userMessage },
-          ],
-          model: mainModel,
-          temperature: temperature,
-        });
+        let response;
+        
+        if (provider === 'nvidia') {
+          response = await nvidiaClient.chatCompletions({
+            model: mainModel,
+            messages: [
+              { role: 'system', content: enhancedSystemPrompt },
+              ...trimmedHistory,
+              { role: 'user', content: userMessage },
+            ],
+            temperature: temperature,
+            max_tokens: 1024,
+          });
+        } else {
+          // Groq provider
+          response = await groq.chat.completions.create({
+            messages: [
+              { role: 'system', content: enhancedSystemPrompt },
+              ...trimmedHistory,
+              { role: 'user', content: userMessage },
+            ],
+            model: mainModel,
+            temperature: temperature,
+          });
+        }
+        
         latencyMainMs = Math.round(performance.now() - startTime);
         // Capture tokens from main model
         if (response.usage) {
@@ -120,12 +174,14 @@ ${knowledgeContext || 'No specific business data provided yet. Use general knowl
         Sentry.captureException(error, {
           tags: {
             model: mainModel,
+            provider: provider,
             error_type: error instanceof Error && error.message.includes('429') ? 'rate_limit' :
                        error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'other',
           },
           contexts: {
-            groq_api: {
+            ai_api: {
               model: mainModel,
+              provider: provider,
               ai_model_selected: aiModel,
               message_count: trimmedHistory.length,
             },
@@ -138,20 +194,42 @@ ${knowledgeContext || 'No specific business data provided yet. Use general knowl
     (async () => {
       const startTime = performance.now();
       try {
-        const response = await groq.chat.completions.create({
-          messages: [
-            {
-              role: 'system',
-              content: `You are a handoff checker. Your job is to determine if the user's latest message or conversation context triggers the handoff condition.
+        let response;
+        
+        if (provider === 'nvidia') {
+          response = await nvidiaClient.chatCompletions({
+            model: handoffModel,
+            messages: [
+              {
+                role: 'system',
+                content: `You are a handoff checker. Your job is to determine if the user's latest message or conversation context triggers the handoff condition.
 Condition: "${transferCondition}"
 Reply ONLY with "YES" or "NO".`,
-            },
-            ...trimmedHistory,
-            { role: 'user', content: userMessage },
-          ],
-          model: handoffModel,
-          temperature: 0,
-        });
+              },
+              ...trimmedHistory,
+              { role: 'user', content: userMessage },
+            ],
+            temperature: 0,
+            max_tokens: 10,
+          });
+        } else {
+          // Groq provider
+          response = await groq.chat.completions.create({
+            messages: [
+              {
+                role: 'system',
+                content: `You are a handoff checker. Your job is to determine if the user's latest message or conversation context triggers the handoff condition.
+Condition: "${transferCondition}"
+Reply ONLY with "YES" or "NO".`,
+              },
+              ...trimmedHistory,
+              { role: 'user', content: userMessage },
+            ],
+            model: handoffModel,
+            temperature: 0,
+          });
+        }
+        
         latencyHandoffMs = Math.round(performance.now() - startTime);
         return response;
       } catch (error) {
@@ -159,12 +237,14 @@ Reply ONLY with "YES" or "NO".`,
         Sentry.captureException(error, {
           tags: {
             model: handoffModel,
+            provider: provider,
             error_type: error instanceof Error && error.message.includes('429') ? 'rate_limit' :
                        error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'other',
           },
           contexts: {
-            groq_api: {
+            ai_api: {
               model: handoffModel,
+              provider: provider,
               ai_model_selected: aiModel,
               message_count: trimmedHistory.length,
             },
