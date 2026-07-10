@@ -25,6 +25,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import KnowledgeSources from '@/components/KnowledgeSources';
 import WhatsAppStatus from '@/components/WhatsAppStatus';
+import AgentOrchestration from '@/components/AgentOrchestration';
 
 function SettingsContent() {
   const searchParams = useSearchParams();
@@ -727,6 +728,14 @@ function SettingsContent() {
 
               <div className="h-20" />
             </div>
+          </div>
+        ) : activeTab === 'Orchestration' ? (
+          <div className="flex-1 overflow-y-auto p-12 bg-[#fcfcfc] dark:bg-zinc-950/50">
+            <AgentOrchestration
+              botId={bot.id}
+              multiAgentEnabled={!!bot.multi_agent_enabled}
+              onToggleMultiAgent={(enabled) => setBot({ ...bot, multi_agent_enabled: enabled })}
+            />
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center bg-[#fcfcfc] dark:bg-zinc-950/50">
