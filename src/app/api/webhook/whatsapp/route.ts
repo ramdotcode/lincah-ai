@@ -5,6 +5,7 @@ import { processMessage } from '@/lib/ai';
 import { logEvent } from '@/lib/eventLog';
 import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
 import { runStageClassification } from '@/lib/stageClassifier';
+import { routeAgent, RoutedAgent } from '@/lib/agentRouter';
 
 export async function POST(req: NextRequest) {
   try {
@@ -121,10 +122,10 @@ export async function POST(req: NextRequest) {
     // 4. Fetch Knowledge Sources
     const { data: sources } = await supabaseAdmin
       .from('knowledge_sources')
-      .select('type, name, content')
+      .select('type, name, content, agent_id')
       .eq('bot_id', bot.id);
 
-    const knowledgeSources = sources?.filter(s => s.content) || [];
+    let knowledgeSources = sources?.filter(s => s.content) || [];
 
     // 4.5 Stage classification (Fase A4): parallel with the main AI call —
     // Groq 8B finishes well before the main model, so awaiting it later adds ~0ms
@@ -139,9 +140,32 @@ export async function POST(req: NextRequest) {
       stageUpdatedAt: conv.stage_updated_at,
     });
 
+    // 4.6 Multi-agent routing (Fase C): must finish BEFORE the main AI call
+    // because the chosen agent determines the system prompt & knowledge scope
+    let systemPrompt = bot.system_prompt;
+    let routedAgent: RoutedAgent | null = null;
+    if (bot.multi_agent_enabled) {
+      routedAgent = await routeAgent({
+        botId: bot.id,
+        conversationId: conv.id,
+        channel: 'whatsapp',
+        history: conv.history || [],
+        userMessage: text,
+        activeAgentId: conv.active_agent_id || null,
+      });
+
+      if (routedAgent) {
+        if (routedAgent.system_prompt) systemPrompt = routedAgent.system_prompt;
+        // Shared knowledge (agent_id null) + knowledge scoped to the chosen agent
+        knowledgeSources = knowledgeSources.filter(
+          s => !s.agent_id || s.agent_id === routedAgent!.id
+        );
+      }
+    }
+
     // 5. Process with AI (now returns latency & token metrics)
     const aiResult = await processMessage(
-      bot.system_prompt,
+      systemPrompt,
       conv.history || [],
       text,
       bot.transfer_condition,
@@ -164,6 +188,8 @@ export async function POST(req: NextRequest) {
         ai_model: bot.ai_model || 'groq',
         model_used: aiResult.modelUsed,
         used_fallback: aiResult.usedFallback || false,
+        agent_id: routedAgent?.id || null,
+        agent_name: routedAgent?.name || null,
       },
     });
 
@@ -189,6 +215,10 @@ export async function POST(req: NextRequest) {
       history: newHistory,
       last_message_at: new Date().toISOString(),
     };
+
+    if (routedAgent && routedAgent.id !== conv.active_agent_id) {
+      updateData.active_agent_id = routedAgent.id;
+    }
 
     if (aiResult.handoffTriggered) {
       updateData.status = 'pending';
