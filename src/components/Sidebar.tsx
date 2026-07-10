@@ -12,12 +12,14 @@ import {
   GitBranch,
   Settings,
   Users,
-  HeartPulse
+  HeartPulse,
+  Shield
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { motion } from 'framer-motion';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { supabase } from '@/lib/supabase-client';
 
 const sidebarModules: Record<string, any[]> = {
   agents: [
@@ -31,7 +33,6 @@ const sidebarModules: Record<string, any[]> = {
     { icon: BookOpen, href: '/leads', label: 'Lead Database' },
     { icon: Ticket, href: '/tickets', label: 'Support Tickets' },
     { icon: BarChart3, href: '/stats', label: 'Analytics' },
-    { icon: HeartPulse, href: '/admin/health', label: 'System Health' },
     { icon: Send, href: '/broadcasts', label: 'Broadcasts' },
   ],
   settings: [
@@ -41,18 +42,44 @@ const sidebarModules: Record<string, any[]> = {
   ]
 };
 
+// Modul terpisah, hanya untuk role 'admin'
+const adminItems = [
+  { icon: BarChart3, href: '/admin/usage', label: 'AI Usage' },
+  { icon: HeartPulse, href: '/admin/health', label: 'System Health' },
+];
+
 export default function Sidebar() {
   const pathname = usePathname();
   const [isHovered, setIsHovered] = useState(false);
+  const [isUserAdmin, setIsUserAdmin] = useState(false);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data } = await supabase
+        .from('profiles')
+        .select('role')
+        .eq('id', user.id)
+        .single();
+      if (mounted && data?.role === 'admin') setIsUserAdmin(true);
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   // Determine active module
-  const activeModule = pathname.startsWith('/agents') || pathname.startsWith('/knowledge') || pathname.startsWith('/flow')
+  const activeModule = pathname.startsWith('/admin')
+    ? 'admin'
+    : pathname.startsWith('/agents') || pathname.startsWith('/knowledge') || pathname.startsWith('/flow')
     ? 'agents'
-    : pathname.startsWith('/monitor') || pathname.startsWith('/leads') || pathname.startsWith('/stats') || pathname.startsWith('/tickets') || pathname.startsWith('/broadcasts') || pathname.startsWith('/admin')
+    : pathname.startsWith('/monitor') || pathname.startsWith('/leads') || pathname.startsWith('/stats') || pathname.startsWith('/tickets') || pathname.startsWith('/broadcasts')
     ? 'crm'
     : 'settings';
 
-  const items = sidebarModules[activeModule] || [];
+  const items = activeModule === 'admin'
+    ? (isUserAdmin ? adminItems : [])
+    : (sidebarModules[activeModule] || []);
 
   return (
     <div className="w-16 h-full relative z-40 transition-colors">
@@ -103,7 +130,23 @@ export default function Sidebar() {
           })}
         </div>
 
-        <div className="px-3 border-t border-app pt-4">
+        <div className="px-3 border-t border-app pt-4 space-y-1">
+          {isUserAdmin && (
+            <Link
+              href="/admin/usage"
+              className={`flex items-center gap-3 px-2.5 py-2.5 rounded-xl transition-all group ${
+                pathname.startsWith('/admin') ? 'bg-muted text-blue-600' : 'text-muted-app hover:bg-muted hover:text-main'
+              }`}
+            >
+              <Shield className="w-5 h-5 flex-shrink-0 group-hover:scale-110 transition-transform" />
+              <motion.span
+                animate={{ opacity: isHovered ? 1 : 0, x: isHovered ? 0 : -10 }}
+                className={`text-sm font-medium whitespace-nowrap ${!isHovered && 'pointer-events-none'}`}
+              >
+                Admin
+              </motion.span>
+            </Link>
+          )}
           <Link
             href="/settings"
             className={`flex items-center gap-3 px-2.5 py-2.5 rounded-xl transition-all group ${
