@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { invalidateCache, cacheKeys } from '@/lib/cache';
 
 const TOOL_TYPES = ['check_stock', 'check_shipping', 'create_order'];
 
@@ -92,5 +93,8 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  await invalidateCache(cacheKeys.tools(body.bot_id));
+
   return NextResponse.json(data);
 }

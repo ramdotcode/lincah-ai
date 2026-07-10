@@ -8,6 +8,7 @@ import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
 import { runStageClassification } from '@/lib/stageClassifier';
 import { routeAgent, RoutedAgent } from '@/lib/agentRouter';
 import { fetchBotTools, ToolContext } from '@/lib/tools';
+import { cached, cacheKeys } from '@/lib/cache';
 
 export async function POST(req: NextRequest) {
   try {
@@ -118,13 +119,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // 4. Fetch Knowledge Sources
-    const { data: sources } = await supabaseAdmin
+    // 4. Fetch Knowledge Sources (cached ~60s, Fase E1)
+    const sources = await cached(cacheKeys.knowledge(bot.id), async () => {
+      const { data } = await supabaseAdmin
         .from('knowledge_sources')
         .select('type, name, content, agent_id')
         .eq('bot_id', bot.id);
+      return data || [];
+    });
 
-    let knowledgeSources = sources?.filter(s => s.content) || [];
+    let knowledgeSources = sources?.filter((s: any) => s.content) || [];
 
     // 4.5 Stage classification (Fase A4): parallel with the main AI call,
     // awaited only after the reply is sent so it never delays the customer

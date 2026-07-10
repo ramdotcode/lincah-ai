@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { invalidateCache, cacheKeys } from '@/lib/cache';
 
 async function getSupabase() {
   const cookieStore = await cookies();
@@ -100,6 +101,9 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  await invalidateCache(cacheKeys.agents(body.bot_id));
+
   return NextResponse.json(data);
 }
 
@@ -125,5 +129,8 @@ export async function DELETE(req: NextRequest) {
 
   const { error } = await supabaseAdmin.from('agents').delete().eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  await invalidateCache(cacheKeys.agents(agent.bot_id));
+
   return NextResponse.json({ ok: true });
 }

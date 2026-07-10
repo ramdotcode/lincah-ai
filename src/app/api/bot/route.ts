@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { invalidateCache, cacheKeys } from '@/lib/cache';
 
 async function getSupabase() {
   const cookieStore = await cookies();
@@ -101,6 +102,12 @@ export async function POST(req: NextRequest) {
       sent_data: botData
     }, { status: 400 });
   }
+
+  // Fase E1: webhook membaca bot dari cache — hapus setelah save
+  const staleKeys = [cacheKeys.botById(data.id)];
+  if (data.whatsapp_phone_number) staleKeys.push(cacheKeys.botByPhone(data.whatsapp_phone_number));
+  await invalidateCache(...staleKeys);
+
   return NextResponse.json(data);
 }
 

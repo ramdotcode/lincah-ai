@@ -7,6 +7,7 @@ import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
 import { runStageClassification } from '@/lib/stageClassifier';
 import { routeAgent, RoutedAgent } from '@/lib/agentRouter';
 import { fetchBotTools, ToolContext } from '@/lib/tools';
+import { cached, cacheKeys } from '@/lib/cache';
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,18 +36,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // 1. Find the bot associated with this message
+    // 1. Find the bot associated with this message (cached ~60s, Fase E1)
     let bot;
     if (bot_id) {
-      const { data } = await supabaseAdmin.from('bots').select('*').eq('id', bot_id).single();
-      bot = data;
+      bot = await cached(cacheKeys.botById(bot_id), async () => {
+        const { data } = await supabaseAdmin.from('bots').select('*').eq('id', bot_id).single();
+        return data;
+      });
     } else {
-      const { data } = await supabaseAdmin.from('bots')
-        .select('*')
-        .eq('whatsapp_phone_number', bot_phone)
-        .eq('whatsapp_enabled', true)
-        .maybeSingle();
-      bot = data;
+      bot = await cached(cacheKeys.botByPhone(bot_phone), async () => {
+        const { data } = await supabaseAdmin.from('bots')
+          .select('*')
+          .eq('whatsapp_phone_number', bot_phone)
+          .eq('whatsapp_enabled', true)
+          .maybeSingle();
+        return data;
+      });
     }
 
     if (!bot) {
@@ -120,13 +125,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // 4. Fetch Knowledge Sources
-    const { data: sources } = await supabaseAdmin
-      .from('knowledge_sources')
-      .select('type, name, content, agent_id')
-      .eq('bot_id', bot.id);
+    // 4. Fetch Knowledge Sources (cached ~60s, Fase E1)
+    const sources = await cached(cacheKeys.knowledge(bot.id), async () => {
+      const { data } = await supabaseAdmin
+        .from('knowledge_sources')
+        .select('type, name, content, agent_id')
+        .eq('bot_id', bot.id);
+      return data || [];
+    });
 
-    let knowledgeSources = sources?.filter(s => s.content) || [];
+    let knowledgeSources = sources?.filter((s: any) => s.content) || [];
 
     // 4.5 Stage classification (Fase A4): parallel with the main AI call —
     // Groq 8B finishes well before the main model, so awaiting it later adds ~0ms

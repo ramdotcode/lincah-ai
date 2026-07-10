@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { invalidateCache, cacheKeys } from '@/lib/cache';
 
 async function getSupabase() {
   const cookieStore = await cookies();
@@ -72,6 +73,9 @@ export async function POST(req: NextRequest) {
     .single();
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  await invalidateCache(cacheKeys.knowledge(data.bot_id));
+
   return NextResponse.json(data);
 }
 
@@ -80,7 +84,17 @@ export async function DELETE(req: NextRequest) {
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 });
 
+  // Ambil bot_id dulu untuk invalidasi cache setelah delete
+  const { data: existing } = await supabaseAdmin
+    .from('knowledge_sources')
+    .select('bot_id')
+    .eq('id', id)
+    .maybeSingle();
+
   const { error } = await supabaseAdmin.from('knowledge_sources').delete().eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+
+  if (existing?.bot_id) await invalidateCache(cacheKeys.knowledge(existing.bot_id));
+
   return NextResponse.json({ ok: true });
 }

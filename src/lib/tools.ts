@@ -1,4 +1,5 @@
 import { supabaseAdmin } from '@/lib/supabase';
+import { cached, cacheKeys } from '@/lib/cache';
 import {
   BotTool,
   parseOrderArgs,
@@ -79,12 +80,15 @@ export async function executeTool(
   }
 }
 
-// Ambil tools aktif milik bot (dipanggil webhook hanya jika bot.tools_enabled)
+// Ambil tools aktif milik bot (dipanggil webhook hanya jika bot.tools_enabled).
+// Cached ~60s (Fase E1).
 export async function fetchBotTools(botId: string): Promise<BotTool[]> {
-  const { data } = await supabaseAdmin
-    .from('bot_tools')
-    .select('id, bot_id, tool_type, enabled, config')
-    .eq('bot_id', botId)
-    .eq('enabled', true);
-  return (data as BotTool[]) || [];
+  return cached(cacheKeys.tools(botId), async () => {
+    const { data } = await supabaseAdmin
+      .from('bot_tools')
+      .select('id, bot_id, tool_type, enabled, config')
+      .eq('bot_id', botId)
+      .eq('enabled', true);
+    return (data as BotTool[]) || [];
+  });
 }

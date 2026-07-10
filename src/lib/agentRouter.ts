@@ -2,6 +2,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { classifyAgent, Message } from '@/lib/ai';
 import { logEvent } from '@/lib/eventLog';
 import { resolveAgent, RoutedAgent } from '@/lib/agentRouting';
+import { cached, cacheKeys } from '@/lib/cache';
 
 export type { RoutedAgent } from '@/lib/agentRouting';
 
@@ -19,11 +20,15 @@ export interface AgentRoutingContext {
 // Tidak pernah throw — kegagalan jatuh ke agent aktif/default via resolveAgent.
 export async function routeAgent(ctx: AgentRoutingContext): Promise<RoutedAgent | null> {
   try {
-    const { data: agents } = await supabaseAdmin
-      .from('agents')
-      .select('id, name, description, system_prompt, is_default, active')
-      .eq('bot_id', ctx.botId)
-      .eq('active', true);
+    // Cached ~60s (Fase E1): daftar agent dibaca tiap pesan masuk
+    const agents = await cached(cacheKeys.agents(ctx.botId), async () => {
+      const { data } = await supabaseAdmin
+        .from('agents')
+        .select('id, name, description, system_prompt, is_default, active')
+        .eq('bot_id', ctx.botId)
+        .eq('active', true);
+      return data || [];
+    });
 
     if (!agents || agents.length === 0) return null;
 
