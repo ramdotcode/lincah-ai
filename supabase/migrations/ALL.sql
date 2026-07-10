@@ -22,6 +22,12 @@ CREATE TABLE public.bots (
   whatsapp_phone_id text,
   whatsapp_access_token text,
   whatsapp_bot_type text DEFAULT 'baileys'::text,
+  followup_enabled boolean DEFAULT false,
+  followup_delay_hours integer DEFAULT 24,
+  followup_max_count integer DEFAULT 2,
+  followup_template text,
+  followup_stages text[] DEFAULT '{interested,negotiating}'::text[],
+  followup_wa_hourly_limit integer DEFAULT 10,
   CONSTRAINT bots_pkey PRIMARY KEY (id),
   CONSTRAINT bots_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
@@ -84,6 +90,17 @@ CREATE TABLE public.event_logs (
   CONSTRAINT event_logs_pkey PRIMARY KEY (id),
   CONSTRAINT event_logs_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id),
   CONSTRAINT event_logs_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id)
+);
+CREATE TABLE public.followups (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  conversation_id uuid NOT NULL,
+  scheduled_at timestamp with time zone NOT NULL DEFAULT now(),
+  sent_at timestamp with time zone,
+  status text NOT NULL DEFAULT 'scheduled'::text CHECK (status = ANY (ARRAY['scheduled'::text, 'sent'::text, 'cancelled'::text, 'failed'::text])),
+  attempt_number integer NOT NULL DEFAULT 1,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT followups_pkey PRIMARY KEY (id),
+  CONSTRAINT followups_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id)
 );
 CREATE TABLE public.profiles (
   id uuid NOT NULL,
