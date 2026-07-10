@@ -132,7 +132,7 @@ export async function POST(req: NextRequest) {
       text,
       bot.transfer_condition,
       knowledgeSources,
-      bot.ai_model || "standard"
+      bot.ai_model || "groq"
     );
 
     // Log event to observability (fire-and-forget)
@@ -146,7 +146,23 @@ export async function POST(req: NextRequest) {
       prompt_tokens: aiResult.promptTokens,
       completion_tokens: aiResult.completionTokens,
       handoff_result: aiResult.handoffTriggered,
+      metadata: {
+        ai_model: bot.ai_model || 'groq',
+        model_used: aiResult.modelUsed,
+        used_fallback: aiResult.usedFallback || false,
+      },
     });
+
+    if (aiResult.errorMessage) {
+      logEvent({
+        bot_id: bot.id,
+        conversation_id: conv.id,
+        channel: 'whatsapp',
+        event_type: 'ai_error',
+        error_message: aiResult.errorMessage,
+        metadata: { ai_model: bot.ai_model || 'groq' },
+      });
+    }
 
     // 6. Update history and status
     const newHistory = [
