@@ -4,6 +4,7 @@ if (typeof window !== 'undefined') {
 
 import Groq from 'groq-sdk';
 import * as Sentry from '@sentry/nextjs';
+import { buildToolSchemas, executeTool, ToolContext } from '@/lib/tools';
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -58,6 +59,7 @@ export interface ProcessMessageResult {
   modelUsed?: string;      // model that actually produced the reply (after fallback)
   usedFallback?: boolean;  // true if NIM failed and Groq took over
   errorMessage?: string;   // set when the main call failed entirely
+  toolCallsMade?: number;  // number of tool executions during this reply (Fase D)
 }
 
 // Sent to the customer when every model attempt fails — never leave the bot silent
@@ -94,13 +96,17 @@ const MODEL_CONFIG = {
   },
 };
 
+// Batas putaran tool: model boleh memanggil tools maksimal 3 ronde per balasan
+const MAX_TOOL_ROUNDS = 3;
+
 export async function processMessage(
   systemPrompt: string,
   history: Message[],
   userMessage: string,
   transferCondition: string,
   knowledgeSources: KnowledgeSource[] = [],
-  aiModel: string = 'groq'
+  aiModel: string = 'groq',
+  toolContext?: ToolContext
 ): Promise<ProcessMessageResult> {
   // 0. Limit history to save tokens
   const trimmedHistory = history.slice(-10);
@@ -147,6 +153,9 @@ ${knowledgeContext || 'No specific business data provided yet. Use general knowl
   let completionTokens = 0;
   let modelUsed = mainModel;
   let usedFallback = false;
+  let toolCallsMade = 0;
+
+  const toolSchemas = toolContext?.tools?.length ? buildToolSchemas(toolContext.tools) : [];
 
   // Parallel requests with error handling
   const results = await Promise.allSettled([
@@ -159,6 +168,62 @@ ${knowledgeContext || 'No specific business data provided yet. Use general knowl
         ...trimmedHistory,
         { role: 'user' as const, content: userMessage },
       ];
+
+      // Tool use (Fase D): always via Groq 70B — NIM models here don't do
+      // function calling reliably, so tools override the provider choice.
+      if (toolSchemas.length > 0 && toolContext) {
+        const toolMessages: any[] = [...mainMessages];
+        modelUsed = MODEL_CONFIG.groq.main;
+        try {
+          let response = await groq.chat.completions.create({
+            messages: toolMessages,
+            model: MODEL_CONFIG.groq.main,
+            temperature,
+            tools: toolSchemas,
+            tool_choice: 'auto',
+          });
+
+          for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+            const msg = response.choices[0]?.message;
+            if (!msg?.tool_calls?.length) break;
+
+            toolMessages.push(msg);
+            for (const call of msg.tool_calls) {
+              let args: any = {};
+              try {
+                args = JSON.parse(call.function.arguments || '{}');
+              } catch {
+                // biarkan args kosong; executor akan mengembalikan pesan error yang ramah
+              }
+              const result = await executeTool(call.function.name, args, toolContext);
+              toolCallsMade++;
+              toolMessages.push({ role: 'tool', tool_call_id: call.id, content: result });
+            }
+
+            // Ronde terakhir: paksa jawaban teks agar tidak menggantung di tool_calls
+            const isLastRound = round === MAX_TOOL_ROUNDS - 1;
+            response = await groq.chat.completions.create({
+              messages: toolMessages,
+              model: MODEL_CONFIG.groq.main,
+              temperature,
+              ...(isLastRound ? {} : { tools: toolSchemas, tool_choice: 'auto' as const }),
+            });
+          }
+
+          latencyMainMs = Math.round(performance.now() - startTime);
+          if (response.usage) {
+            promptTokens = response.usage.prompt_tokens;
+            completionTokens = response.usage.completion_tokens;
+          }
+          return response;
+        } catch (error) {
+          latencyMainMs = Math.round(performance.now() - startTime);
+          Sentry.captureException(error, {
+            tags: { model: MODEL_CONFIG.groq.main, provider: 'groq', feature: 'tool_use' },
+          });
+          throw error;
+        }
+      }
 
       const callMain = (prov: string, model: string) =>
         prov === 'nvidia'
@@ -293,6 +358,7 @@ Reply ONLY with "YES" or "NO".`,
     modelUsed,
     usedFallback,
     errorMessage,
+    toolCallsMade,
   };
 }
 

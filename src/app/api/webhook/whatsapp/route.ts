@@ -6,6 +6,7 @@ import { logEvent } from '@/lib/eventLog';
 import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
 import { runStageClassification } from '@/lib/stageClassifier';
 import { routeAgent, RoutedAgent } from '@/lib/agentRouter';
+import { fetchBotTools, ToolContext } from '@/lib/tools';
 
 export async function POST(req: NextRequest) {
   try {
@@ -163,6 +164,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 4.7 Tool use (Fase D): AI bisa cek stok/ongkir & catat pesanan
+    let toolContext: ToolContext | undefined;
+    if (bot.tools_enabled) {
+      const tools = await fetchBotTools(bot.id);
+      if (tools.length > 0) {
+        toolContext = { botId: bot.id, conversationId: conv.id, customerContact: from, tools };
+      }
+    }
+
     // 5. Process with AI (now returns latency & token metrics)
     const aiResult = await processMessage(
       systemPrompt,
@@ -170,7 +180,8 @@ export async function POST(req: NextRequest) {
       text,
       bot.transfer_condition,
       knowledgeSources,
-      bot.ai_model || "groq"
+      bot.ai_model || "groq",
+      toolContext
     );
 
     // Log event to observability (fire-and-forget)
@@ -190,6 +201,7 @@ export async function POST(req: NextRequest) {
         used_fallback: aiResult.usedFallback || false,
         agent_id: routedAgent?.id || null,
         agent_name: routedAgent?.name || null,
+        tool_calls: aiResult.toolCallsMade || 0,
       },
     });
 
