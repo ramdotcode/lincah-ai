@@ -12,7 +12,7 @@ CREATE TABLE public.bots (
   user_id uuid,
   created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
   welcome_message text,
-  ai_model text DEFAULT 'standard'::text,
+  ai_model text DEFAULT 'groq'::text,
   ai_label text,
   ai_pipeline_status text,
   updated_at timestamp with time zone DEFAULT timezone('utc'::text, now()),
@@ -63,4 +63,31 @@ CREATE TABLE public.knowledge_sources (
   updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
   CONSTRAINT knowledge_sources_pkey PRIMARY KEY (id),
   CONSTRAINT knowledge_sources_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id)
+);
+CREATE TABLE public.event_logs (
+  id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  bot_id uuid,
+  conversation_id uuid,
+  channel text NOT NULL,
+  event_type text NOT NULL,
+  latency_main_ms integer,
+  latency_handoff_ms integer,
+  prompt_tokens integer,
+  completion_tokens integer,
+  handoff_result boolean,
+  error_message text,
+  metadata jsonb DEFAULT '{}'::jsonb,
+  CONSTRAINT event_logs_pkey PRIMARY KEY (id),
+  CONSTRAINT event_logs_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id),
+  CONSTRAINT event_logs_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id)
+);
+CREATE TABLE public.profiles (
+  id uuid NOT NULL,
+  role text NOT NULL DEFAULT 'owner'::text CHECK (role = ANY (ARRAY['admin'::text, 'owner'::text, 'agent'::text])),
+  full_name text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT profiles_pkey PRIMARY KEY (id),
+  CONSTRAINT profiles_id_fkey FOREIGN KEY (id) REFERENCES auth.users(id)
 );
