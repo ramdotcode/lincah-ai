@@ -70,6 +70,12 @@ export async function POST(req: NextRequest) {
     whatsapp_token: body.whatsapp_token,
     whatsapp_phone_id: body.whatsapp_phone_id,
     whatsapp_verify_token: body.whatsapp_verify_token,
+    followup_enabled: body.followup_enabled,
+    followup_delay_hours: body.followup_delay_hours,
+    followup_max_count: body.followup_max_count,
+    followup_template: body.followup_template,
+    followup_stages: body.followup_stages,
+    followup_wa_hourly_limit: body.followup_wa_hourly_limit,
     user_id: user.id,
     updated_at: new Date().toISOString()
   };

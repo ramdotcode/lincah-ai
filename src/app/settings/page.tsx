@@ -605,6 +605,129 @@ function SettingsContent() {
               </div>
             </div>
           </div>
+        ) : activeTab === 'Followups' ? (
+          <div className="flex-1 overflow-y-auto p-12 bg-[#fcfcfc] dark:bg-zinc-950/50">
+            <div className="max-w-2xl mx-auto space-y-12">
+              <div className="flex items-center gap-3 mb-8">
+                <div className="w-12 h-12 bg-amber-500/10 rounded-2xl flex items-center justify-center">
+                  <Clock className="w-6 h-6 text-amber-600" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-main">Auto Follow-up</h3>
+                  <p className="text-[11px] text-muted-app">Kirim pesan otomatis ke lead yang tidak membalas. Simpan dengan tombol Save Changes.</p>
+                </div>
+              </div>
+
+              {/* Toggle on/off */}
+              <div className="bg-card-app border border-app p-6 rounded-[2rem] flex items-center justify-between shadow-sm">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-500" />
+                  <div>
+                    <span className="text-xs font-bold text-main block">Aktifkan Auto Follow-up</span>
+                    <span className="text-[10px] text-muted-app">Follow-up dikirim oleh scheduler tiap ±20 menit.</span>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer">
+                  <input type="checkbox"
+                    className="sr-only peer"
+                    checked={!!bot.followup_enabled}
+                    onChange={(e) => setBot({...bot, followup_enabled: e.target.checked})}
+                  />
+                  <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                </label>
+              </div>
+
+              {bot.whatsapp_enabled && (
+                <div className="bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-2xl p-4 text-[11px] text-amber-800 dark:text-amber-200 leading-relaxed">
+                  ⚠️ <span className="font-bold">Perhatian untuk bot WhatsApp:</span> follow-up massal menaikkan risiko nomor di-banned oleh WhatsApp.
+                  Gunakan delay panjang, batasi jumlah, dan pantau kesehatan sesi secara berkala.
+                </div>
+              )}
+
+              {/* Delay, max count, WA limit */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest pl-1">Delay (jam)</label>
+                  <input type="number" min={1}
+                    value={bot.followup_delay_hours ?? 24}
+                    onChange={(e) => setBot({...bot, followup_delay_hours: parseInt(e.target.value) || 24})}
+                    className="w-full bg-card-app border border-app rounded-xl px-4 py-2.5 text-xs outline-none focus:border-blue-500/50 text-main"
+                  />
+                  <p className="text-[10px] text-muted-app pl-1">Jeda sejak pesan terakhir pelanggan.</p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest pl-1">Maks. follow-up</label>
+                  <input type="number" min={1} max={10}
+                    value={bot.followup_max_count ?? 2}
+                    onChange={(e) => setBot({...bot, followup_max_count: parseInt(e.target.value) || 2})}
+                    className="w-full bg-card-app border border-app rounded-xl px-4 py-2.5 text-xs outline-none focus:border-blue-500/50 text-main"
+                  />
+                  <p className="text-[10px] text-muted-app pl-1">Per lead, seumur percakapan.</p>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest pl-1">Limit WA / jam</label>
+                  <input type="number" min={1} max={60}
+                    value={bot.followup_wa_hourly_limit ?? 10}
+                    onChange={(e) => setBot({...bot, followup_wa_hourly_limit: parseInt(e.target.value) || 10})}
+                    className="w-full bg-card-app border border-app rounded-xl px-4 py-2.5 text-xs outline-none focus:border-blue-500/50 text-main"
+                  />
+                  <p className="text-[10px] text-muted-app pl-1">Maks. follow-up WhatsApp per jam.</p>
+                </div>
+              </div>
+
+              {/* Stage selection */}
+              <div className="space-y-3">
+                <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest pl-1">Stage yang di-follow-up</label>
+                <div className="flex flex-wrap gap-2">
+                  {['new', 'interested', 'negotiating'].map((stage) => {
+                    const selected = (bot.followup_stages || ['interested', 'negotiating']).includes(stage);
+                    return (
+                      <button key={stage}
+                        onClick={() => {
+                          const current = bot.followup_stages || ['interested', 'negotiating'];
+                          setBot({
+                            ...bot,
+                            followup_stages: selected
+                              ? current.filter((s: string) => s !== stage)
+                              : [...current, stage],
+                          });
+                        }}
+                        className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all ${
+                          selected
+                            ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-900/10 text-blue-600'
+                            : 'border-app bg-card-app text-muted-app hover:border-gray-300'
+                        }`}
+                      >
+                        {stage}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p className="text-[10px] text-muted-app pl-1">Stage won/lost tidak pernah di-follow-up.</p>
+              </div>
+
+              {/* Template editor + preview */}
+              <div className="space-y-3">
+                <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest pl-1">Template pesan</label>
+                <textarea
+                  rows={3}
+                  value={bot.followup_template || ''}
+                  onChange={(e) => setBot({...bot, followup_template: e.target.value})}
+                  placeholder="Halo {nama}, sekadar menindaklanjuti percakapan kita sebelumnya. Apakah masih ada yang bisa kami bantu? 😊"
+                  className="w-full bg-white dark:bg-zinc-900 border border-app rounded-2xl p-4 text-sm text-main focus:border-amber-400 outline-none transition-all shadow-sm"
+                />
+                <p className="text-[10px] text-muted-app pl-1">Gunakan <span className="font-mono font-bold">{'{nama}'}</span> untuk menyisipkan nama kontak.</p>
+                <div className="bg-card-app border border-app rounded-2xl p-4">
+                  <p className="text-[10px] uppercase font-bold text-muted-app tracking-widest mb-2">Preview</p>
+                  <div className="bg-white dark:bg-zinc-800 border border-app px-4 py-3 rounded-2xl text-[12px] text-main shadow-sm inline-block">
+                    {(bot.followup_template?.trim() || 'Halo {nama}, sekadar menindaklanjuti percakapan kita sebelumnya. Apakah masih ada yang bisa kami bantu? 😊').replaceAll('{nama}', 'Budi')}
+                  </div>
+                </div>
+              </div>
+
+              <div className="h-20" />
+            </div>
+          </div>
         ) : (
           <div className="flex-1 flex items-center justify-center bg-[#fcfcfc] dark:bg-zinc-950/50">
             <div className="text-center">
