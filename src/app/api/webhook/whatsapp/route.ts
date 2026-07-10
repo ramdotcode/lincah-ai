@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { processMessage } from '@/lib/ai';
 import { logEvent } from '@/lib/eventLog';
 import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
+import { runStageClassification } from '@/lib/stageClassifier';
 
 export async function POST(req: NextRequest) {
   try {
@@ -125,6 +126,19 @@ export async function POST(req: NextRequest) {
 
     const knowledgeSources = sources?.filter(s => s.content) || [];
 
+    // 4.5 Stage classification (Fase A4): parallel with the main AI call —
+    // Groq 8B finishes well before the main model, so awaiting it later adds ~0ms
+    const stagePromise = runStageClassification({
+      botId: bot.id,
+      conversationId: conv.id,
+      channel: 'whatsapp',
+      history: conv.history || [],
+      userMessage: text,
+      currentStage: conv.stage,
+      stageUpdatedBy: conv.stage_updated_by,
+      stageUpdatedAt: conv.stage_updated_at,
+    });
+
     // 5. Process with AI (now returns latency & token metrics)
     const aiResult = await processMessage(
       bot.system_prompt,
@@ -183,7 +197,10 @@ export async function POST(req: NextRequest) {
 
     await supabaseAdmin.from('conversations').update(updateData).eq('id', conv.id);
 
-    // 7. Return reply to bridge (which will send via WhatsApp)
+    // 7. Make sure classification finished (started in parallel, effectively done by now)
+    await stagePromise;
+
+    // 8. Return reply to bridge (which will send via WhatsApp)
     return NextResponse.json({ reply: aiResult.aiResponse });
   } catch (error: any) {
     console.error('WhatsApp Webhook Error:', error);

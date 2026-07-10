@@ -295,3 +295,67 @@ Reply ONLY with "YES" or "NO".`,
     errorMessage,
   };
 }
+
+export interface StageClassificationResult {
+  stage: string | null;   // null when the model failed or answered garbage
+  latencyMs: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  errorMessage?: string;
+}
+
+const LEAD_STAGES = ['new', 'interested', 'negotiating', 'won', 'lost'];
+
+// Mirrors the handoff checker: always Groq 8B, temp 0, one-word answer.
+// Never throws — a failed classification must not disturb the reply flow.
+export async function classifyLeadStage(
+  history: Message[],
+  userMessage: string
+): Promise<StageClassificationResult> {
+  const trimmedHistory = history.slice(-10);
+  const startTime = performance.now();
+
+  try {
+    const response = await groq.chat.completions.create({
+      messages: [
+        {
+          role: 'system',
+          content: `You are a sales pipeline classifier for a customer service bot. Based on the conversation, classify the customer's buying stage.
+Stages:
+- new: just started, greeting, or asking generic questions
+- interested: asking about products, prices, availability, or showing buying interest
+- negotiating: discussing discounts, payment terms, delivery, or comparing options seriously
+- won: confirmed purchase, paid, or committed to buy
+- lost: explicitly declined, not interested, or bought elsewhere
+Reply ONLY with one word: new, interested, negotiating, won, or lost.`,
+        },
+        ...trimmedHistory,
+        { role: 'user', content: userMessage },
+      ],
+      model: HANDOFF_MODEL,
+      temperature: 0,
+    });
+
+    const latencyMs = Math.round(performance.now() - startTime);
+    const raw = response.choices[0]?.message?.content?.trim().toLowerCase() || '';
+    const stage = LEAD_STAGES.find(s => raw === s || raw.startsWith(s)) || null;
+
+    return {
+      stage,
+      latencyMs,
+      promptTokens: response.usage?.prompt_tokens,
+      completionTokens: response.usage?.completion_tokens,
+      errorMessage: stage ? undefined : `Unrecognized stage output: "${raw}"`,
+    };
+  } catch (error) {
+    const latencyMs = Math.round(performance.now() - startTime);
+    Sentry.captureException(error, {
+      tags: { model: HANDOFF_MODEL, provider: 'groq', feature: 'stage_classification' },
+    });
+    return {
+      stage: null,
+      latencyMs,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    };
+  }
+}

@@ -5,6 +5,7 @@ import { processMessage } from '@/lib/ai';
 import { sendTelegramMessage } from '@/lib/telegram';
 import { logEvent } from '@/lib/eventLog';
 import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
+import { runStageClassification } from '@/lib/stageClassifier';
 
 export async function POST(req: NextRequest) {
   try {
@@ -123,6 +124,19 @@ export async function POST(req: NextRequest) {
 
     const knowledgeSources = sources?.filter(s => s.content) || [];
 
+    // 4.5 Stage classification (Fase A4): parallel with the main AI call,
+    // awaited only after the reply is sent so it never delays the customer
+    const stagePromise = runStageClassification({
+      botId: bot.id,
+      conversationId: conv.id,
+      channel: 'telegram',
+      history: conv.history || [],
+      userMessage: messageText,
+      currentStage: conv.stage,
+      stageUpdatedBy: conv.stage_updated_by,
+      stageUpdatedAt: conv.stage_updated_at,
+    });
+
     // 5. Process with AI (now returns latency & token metrics)
     const aiResult = await processMessage(
       bot.system_prompt,
@@ -194,6 +208,9 @@ export async function POST(req: NextRequest) {
         `🚨 HANDOFF TRIGGERED for user ${conv.name} (@${conv.username})\n\nMessage: ${messageText}`
       );
     }
+
+    // 9. Make sure classification finished before the serverless function freezes
+    await stagePromise;
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {
