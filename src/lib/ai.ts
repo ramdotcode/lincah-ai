@@ -296,6 +296,79 @@ Reply ONLY with "YES" or "NO".`,
   };
 }
 
+export interface AgentClassificationResult {
+  agentName: string | null;   // null when the model failed or answered garbage
+  latencyMs: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  errorMessage?: string;
+}
+
+export interface RoutableAgent {
+  id: string;
+  name: string;
+  description?: string | null;
+}
+
+// Mirrors the handoff checker: always Groq 8B, temp 0, one-word answer.
+// Never throws — a failed routing must not disturb the reply flow.
+export async function classifyAgent(
+  agents: RoutableAgent[],
+  history: Message[],
+  userMessage: string
+): Promise<AgentClassificationResult> {
+  const trimmedHistory = history.slice(-10);
+  const startTime = performance.now();
+
+  const agentList = agents
+    .map(a => `- ${a.name}: ${a.description || 'no description'}`)
+    .join('\n');
+  const agentNames = agents.map(a => a.name).join(', ');
+
+  try {
+    const response = await groq.chat.completions.create({
+      messages: [
+        {
+          role: 'system',
+          content: `You are a chat router for a customer service system. Based on the conversation and the customer's latest message, decide which agent (division) should handle this chat.
+Available agents:
+${agentList}
+Reply ONLY with the exact agent name, one of: ${agentNames}.`,
+        },
+        ...trimmedHistory,
+        { role: 'user', content: userMessage },
+      ],
+      model: HANDOFF_MODEL,
+      temperature: 0,
+    });
+
+    const latencyMs = Math.round(performance.now() - startTime);
+    const raw = response.choices[0]?.message?.content?.trim().toLowerCase() || '';
+    const match = agents.find(a => {
+      const name = a.name.trim().toLowerCase();
+      return raw === name || raw.startsWith(name) || raw.includes(name);
+    });
+
+    return {
+      agentName: match ? match.name : null,
+      latencyMs,
+      promptTokens: response.usage?.prompt_tokens,
+      completionTokens: response.usage?.completion_tokens,
+      errorMessage: match ? undefined : `Unrecognized agent output: "${raw}"`,
+    };
+  } catch (error) {
+    const latencyMs = Math.round(performance.now() - startTime);
+    Sentry.captureException(error, {
+      tags: { model: HANDOFF_MODEL, provider: 'groq', feature: 'agent_routing' },
+    });
+    return {
+      agentName: null,
+      latencyMs,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 export interface StageClassificationResult {
   stage: string | null;   // null when the model failed or answered garbage
   latencyMs: number;
