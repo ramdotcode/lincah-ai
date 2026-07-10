@@ -9,6 +9,7 @@ import { runStageClassification } from '@/lib/stageClassifier';
 import { routeAgent, RoutedAgent } from '@/lib/agentRouter';
 import { fetchBotTools, ToolContext } from '@/lib/tools';
 import { cached, cacheKeys } from '@/lib/cache';
+import { shouldUseRag, retrieveKnowledge } from '@/lib/rag';
 
 export async function POST(req: NextRequest) {
   try {
@@ -128,7 +129,7 @@ export async function POST(req: NextRequest) {
       return data || [];
     });
 
-    let knowledgeSources = sources?.filter((s: any) => s.content) || [];
+    let knowledgeSources: any[] = sources?.filter((s: any) => s.content) || [];
 
     // 4.5 Stage classification (Fase A4): parallel with the main AI call,
     // awaited only after the reply is sent so it never delays the customer
@@ -164,6 +165,13 @@ export async function POST(req: NextRequest) {
           s => !s.agent_id || s.agent_id === routedAgent!.id
         );
       }
+    }
+
+    // 4.65 RAG (Fase E2): knowledge gemuk → ambil hanya chunk paling relevan.
+    // Fail-open: retrieval gagal/kosong → tetap pakai knowledge penuh.
+    if (shouldUseRag(knowledgeSources)) {
+      const relevant = await retrieveKnowledge(bot.id, routedAgent?.id || null, messageText);
+      if (relevant?.length) knowledgeSources = relevant;
     }
 
     // 4.7 Tool use (Fase D): AI bisa cek stok/ongkir & catat pesanan

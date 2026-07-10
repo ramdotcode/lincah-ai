@@ -147,6 +147,20 @@ CREATE TABLE public.orders (
   CONSTRAINT orders_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id),
   CONSTRAINT orders_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id)
 );
+CREATE TABLE public.knowledge_chunks (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  knowledge_source_id uuid NOT NULL,
+  bot_id uuid NOT NULL,
+  agent_id uuid,
+  chunk_index integer NOT NULL DEFAULT 0,
+  content text NOT NULL,
+  embedding vector(1024),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT knowledge_chunks_pkey PRIMARY KEY (id),
+  CONSTRAINT knowledge_chunks_source_fkey FOREIGN KEY (knowledge_source_id) REFERENCES public.knowledge_sources(id),
+  CONSTRAINT knowledge_chunks_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id),
+  CONSTRAINT knowledge_chunks_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES public.agents(id)
+);
 CREATE TABLE public.profiles (
   id uuid NOT NULL,
   role text NOT NULL DEFAULT 'owner'::text CHECK (role = ANY (ARRAY['admin'::text, 'owner'::text, 'agent'::text])),

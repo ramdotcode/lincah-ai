@@ -3,6 +3,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { invalidateCache, cacheKeys } from '@/lib/cache';
+import { reindexKnowledgeSource } from '@/lib/rag';
 
 async function getSupabase() {
   const cookieStore = await cookies();
@@ -75,6 +76,11 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
   await invalidateCache(cacheKeys.knowledge(data.bot_id));
+
+  // RAG (Fase E2): bangun ulang chunk + embedding untuk source ini.
+  // Ditunggu di sini (bukan fire-and-forget) agar tidak terpotong serverless freeze;
+  // gagal pun tidak apa-apa — webhook otomatis jatuh ke knowledge penuh.
+  await reindexKnowledgeSource(data);
 
   return NextResponse.json(data);
 }
