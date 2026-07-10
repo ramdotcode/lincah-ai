@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
     followup_stages: body.followup_stages,
     followup_wa_hourly_limit: body.followup_wa_hourly_limit,
     multi_agent_enabled: body.multi_agent_enabled,
+    tools_enabled: body.tools_enabled,
     user_id: user.id,
     updated_at: new Date().toISOString()
   };
