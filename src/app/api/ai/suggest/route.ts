@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processMessage } from '@/lib/ai';
 import { supabaseAdmin } from '@/lib/supabase';
+import { getAuthUser, canAccessConversation } from '@/lib/apiAuth';
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await getAuthUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { conversationId } = await req.json();
 
     if (!conversationId) {
       return NextResponse.json({ error: 'Conversation ID required' }, { status: 400 });
+    }
+
+    if (!(await canAccessConversation(user.id, conversationId))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
     }
 
     // 1. Get conversation and bot context

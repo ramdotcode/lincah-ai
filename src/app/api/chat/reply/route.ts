@@ -1,10 +1,22 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { sendTelegramMessage } from '@/lib/telegram';
+import { getAuthUser, canAccessConversation } from '@/lib/apiAuth';
 
 export async function POST(req: NextRequest) {
   try {
+    const user = await getAuthUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
     const { conversationId, text } = await req.json();
+
+    if (!conversationId || !text?.trim()) {
+      return NextResponse.json({ error: 'conversationId and text are required' }, { status: 400 });
+    }
+
+    if (!(await canAccessConversation(user.id, conversationId))) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 });
+    }
 
     const { data: conv, error: convError } = await supabaseAdmin
       .from('conversations')
@@ -24,6 +36,7 @@ export async function POST(req: NextRequest) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          botId: conv.bot_id, // bridge butuh botId untuk lookup sesi WA yang benar
           to: conv.chat_id,
           text: text
         })
