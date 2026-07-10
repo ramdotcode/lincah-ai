@@ -40,6 +40,9 @@ CREATE TABLE public.conversations (
   history jsonb DEFAULT '[]'::jsonb,
   handoff_at timestamp with time zone,
   metadata jsonb DEFAULT '{}'::jsonb,
+  stage text NOT NULL DEFAULT 'new'::text CHECK (stage = ANY (ARRAY['new'::text, 'interested'::text, 'negotiating'::text, 'won'::text, 'lost'::text])),
+  stage_updated_at timestamp with time zone DEFAULT now(),
+  stage_updated_by text CHECK (stage_updated_by = ANY (ARRAY['ai'::text, 'manual'::text])),
   CONSTRAINT conversations_pkey PRIMARY KEY (id),
   CONSTRAINT conversations_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id)
 );
