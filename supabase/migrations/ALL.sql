@@ -29,6 +29,7 @@ CREATE TABLE public.bots (
   followup_stages text[] DEFAULT '{interested,negotiating}'::text[],
   followup_wa_hourly_limit integer DEFAULT 10,
   multi_agent_enabled boolean DEFAULT false,
+  tools_enabled boolean DEFAULT false,
   CONSTRAINT bots_pkey PRIMARY KEY (id),
   CONSTRAINT bots_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
@@ -119,6 +120,32 @@ CREATE TABLE public.followups (
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT followups_pkey PRIMARY KEY (id),
   CONSTRAINT followups_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id)
+);
+CREATE TABLE public.bot_tools (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  bot_id uuid NOT NULL,
+  tool_type text NOT NULL CHECK (tool_type = ANY (ARRAY['check_stock'::text, 'check_shipping'::text, 'create_order'::text])),
+  enabled boolean NOT NULL DEFAULT true,
+  config jsonb NOT NULL DEFAULT '{}'::jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT bot_tools_pkey PRIMARY KEY (id),
+  CONSTRAINT bot_tools_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id)
+);
+CREATE TABLE public.orders (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  bot_id uuid NOT NULL,
+  conversation_id uuid,
+  customer_name text,
+  customer_contact text,
+  items jsonb NOT NULL DEFAULT '[]'::jsonb,
+  address text,
+  notes text,
+  status text NOT NULL DEFAULT 'new'::text CHECK (status = ANY (ARRAY['new'::text, 'confirmed'::text, 'paid'::text, 'shipped'::text, 'done'::text, 'cancelled'::text])),
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT orders_pkey PRIMARY KEY (id),
+  CONSTRAINT orders_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id),
+  CONSTRAINT orders_conversation_id_fkey FOREIGN KEY (conversation_id) REFERENCES public.conversations(id)
 );
 CREATE TABLE public.profiles (
   id uuid NOT NULL,
