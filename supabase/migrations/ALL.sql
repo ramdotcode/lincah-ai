@@ -30,6 +30,7 @@ CREATE TABLE public.bots (
   followup_wa_hourly_limit integer DEFAULT 10,
   multi_agent_enabled boolean DEFAULT false,
   tools_enabled boolean DEFAULT false,
+  widget_enabled boolean DEFAULT false,
   CONSTRAINT bots_pkey PRIMARY KEY (id),
   CONSTRAINT bots_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );

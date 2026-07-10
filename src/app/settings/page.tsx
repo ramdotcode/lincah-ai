@@ -591,6 +591,44 @@ function SettingsContent() {
                 </AnimatePresence>
               </div>
 
+              {/* Live Chat Widget Section (Fase E3) */}
+              <div className="bg-card-app border border-app rounded-[2.5rem] p-8 space-y-6 shadow-sm">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center">
+                      <MessageSquare className="w-6 h-6 text-blue-600" />
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-bold text-main">Live Chat Widget</h4>
+                      <p className="text-[11px] text-muted-app">Chat mengambang yang bisa dipasang di website mana pun.</p>
+                    </div>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer">
+                    <input type="checkbox"
+                      className="sr-only peer"
+                      checked={bot.widget_enabled || false}
+                      onChange={(e) => setBot({...bot, widget_enabled: e.target.checked})}
+                    />
+                    <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
+                  </label>
+                </div>
+
+                {bot.widget_enabled && (
+                  <div className="space-y-3 pt-4 border-t border-app">
+                    <p className="text-[11px] text-muted-app">
+                      Simpan dulu dengan <span className="font-bold">Save Changes</span>, lalu tempel kode ini sebelum <span className="font-mono">&lt;/body&gt;</span> di website kamu:
+                    </p>
+                    <pre className="bg-zinc-900 text-emerald-400 text-[11px] rounded-xl p-4 overflow-x-auto font-mono leading-relaxed">
+{`<script src="${typeof window !== 'undefined' ? window.location.origin : ''}/widget.js"
+  data-bot-id="${bot.id}" defer></script>`}
+                    </pre>
+                    <p className="text-[10px] text-muted-app">
+                      Percakapan dari widget muncul di Live Monitoring dengan platform <span className="font-bold">webchat</span>. Multi-agent, tools, dan handoff berlaku sama seperti channel lain.
+                    </p>
+                  </div>
+                )}
+              </div>
+
               {/* Telegram Section (Existing but empty placeholder) */}
               <div className="bg-card-app border border-app rounded-[2.5rem] p-8 opacity-50">
                   <div className="flex items-center justify-between">

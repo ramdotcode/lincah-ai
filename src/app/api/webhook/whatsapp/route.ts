@@ -80,6 +80,7 @@ export async function POST(req: NextRequest) {
           bot_id: bot.id,
           chat_id: from,
           name: name || from,
+          platform: 'whatsapp',
           history: [],
           status: 'active',
         })

@@ -6,7 +6,7 @@ import { shouldAdvanceStage } from '@/lib/stage';
 export interface StageClassificationContext {
   botId: string;
   conversationId: string;
-  channel: 'telegram' | 'whatsapp';
+  channel: 'telegram' | 'whatsapp' | 'webchat';
   history: Message[];
   userMessage: string;
   currentStage: string | null;

@@ -55,6 +55,8 @@ export async function GET(req: NextRequest) {
         .eq('bot_id', bot.id)
         .eq('status', 'active')
         .in('stage', stages)
+        // Widget webchat (Fase E3) tidak bisa di-push follow-up — hanya WA/Telegram
+        .in('platform', ['whatsapp', 'telegram'])
         .lt('last_message_at', cutoff)
         .limit(100);
       if (convsError) throw convsError;

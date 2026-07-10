@@ -57,7 +57,7 @@ function withTimeout<T>(promise: Promise<T>): Promise<T> {
  * configured, errors, or times out, the message is allowed through.
  */
 export async function checkRateLimit(
-  channel: 'telegram' | 'whatsapp',
+  channel: 'telegram' | 'whatsapp' | 'webchat',
   senderId: string,
   botId: string
 ): Promise<RateLimitResult> {

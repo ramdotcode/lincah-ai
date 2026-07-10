@@ -9,7 +9,7 @@ export type { RoutedAgent } from '@/lib/agentRouting';
 export interface AgentRoutingContext {
   botId: string;
   conversationId: string;
-  channel: 'telegram' | 'whatsapp';
+  channel: 'telegram' | 'whatsapp' | 'webchat';
   history: Message[];
   userMessage: string;
   activeAgentId: string | null;
