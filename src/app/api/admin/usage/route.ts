@@ -43,7 +43,7 @@ export async function GET() {
     const now = new Date();
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    const [processed, errors, rateLimited] = await Promise.all([
+    const [processed, errors, rateLimited, followupsSent] = await Promise.all([
       supabaseAdmin
         .from('event_logs')
         .select('created_at, prompt_tokens, completion_tokens, latency_main_ms, metadata')
@@ -62,6 +62,11 @@ export async function GET() {
         .from('event_logs')
         .select('id', { count: 'exact', head: true })
         .eq('event_type', 'rate_limited')
+        .gte('created_at', sevenDaysAgo.toISOString()),
+      supabaseAdmin
+        .from('event_logs')
+        .select('id', { count: 'exact', head: true })
+        .eq('event_type', 'followup_sent')
         .gte('created_at', sevenDaysAgo.toISOString()),
     ]);
 
@@ -121,6 +126,7 @@ export async function GET() {
         tokens: modelStats.reduce((s, m) => s + m.tokens, 0),
         fallbacks: modelStats.reduce((s, m) => s + m.fallbacks, 0),
         rateLimited: rateLimited.count || 0,
+        followupsSent: followupsSent.count || 0,
         errors: errors.data?.length || 0,
       },
       recentErrors: errors.data || [],

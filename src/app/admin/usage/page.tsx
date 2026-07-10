@@ -36,7 +36,7 @@ interface ModelStat {
 interface UsageData {
   days: DayTokens[];
   modelStats: ModelStat[];
-  totals: { messages: number; tokens: number; fallbacks: number; rateLimited: number; errors: number };
+  totals: { messages: number; tokens: number; fallbacks: number; rateLimited: number; followupsSent: number; errors: number };
   recentErrors: any[];
 }
 
@@ -167,7 +167,7 @@ export default function AdminUsagePage() {
         )}
 
         {/* Metric Cards */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
           <div className="bg-card-app border border-app rounded-2xl p-5">
             <div className="flex items-center gap-2 text-sub text-sm mb-2">
               <Coins className="w-4 h-4" /> Total Tokens
@@ -206,6 +206,16 @@ export default function AdminUsagePage() {
               {data ? `${data.totals.errors} / ${data.totals.rateLimited}` : '—'}
             </div>
             <div className="text-xs text-sub mt-1">ai+webhook errors / rate limited</div>
+          </div>
+
+          <div className="bg-card-app border border-app rounded-2xl p-5">
+            <div className="flex items-center gap-2 text-sub text-sm mb-2">
+              <MessageSquare className="w-4 h-4" /> Follow-up Terkirim
+            </div>
+            <div className="text-2xl font-bold text-main">
+              {data ? data.totals.followupsSent.toLocaleString() : '—'}
+            </div>
+            <div className="text-xs text-sub mt-1">auto follow-up, 7 hari</div>
           </div>
         </div>
 

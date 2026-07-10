@@ -213,6 +213,11 @@ export default function MonitorPage() {
                                         ? 'bg-card-app border border-app text-main rounded-bl-none shadow-sm' 
                                         : 'bg-blue-600 text-white rounded-br-none shadow-md shadow-blue-500/10'
                                 }`}>
+                                    {msg.followup && (
+                                        <span className="inline-block mb-1 px-1.5 py-0.5 rounded bg-white/20 text-[9px] font-bold uppercase tracking-wider">
+                                            ⏰ Auto Follow-up
+                                        </span>
+                                    )}
                                     <p>{msg.content}</p>
                                 </div>
                             </div>
