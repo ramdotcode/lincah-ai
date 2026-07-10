@@ -28,6 +28,7 @@ CREATE TABLE public.bots (
   followup_template text,
   followup_stages text[] DEFAULT '{interested,negotiating}'::text[],
   followup_wa_hourly_limit integer DEFAULT 10,
+  multi_agent_enabled boolean DEFAULT false,
   CONSTRAINT bots_pkey PRIMARY KEY (id),
   CONSTRAINT bots_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
@@ -49,8 +50,23 @@ CREATE TABLE public.conversations (
   stage text NOT NULL DEFAULT 'new'::text CHECK (stage = ANY (ARRAY['new'::text, 'interested'::text, 'negotiating'::text, 'won'::text, 'lost'::text])),
   stage_updated_at timestamp with time zone DEFAULT now(),
   stage_updated_by text CHECK (stage_updated_by = ANY (ARRAY['ai'::text, 'manual'::text])),
+  active_agent_id uuid,
   CONSTRAINT conversations_pkey PRIMARY KEY (id),
-  CONSTRAINT conversations_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id)
+  CONSTRAINT conversations_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id),
+  CONSTRAINT conversations_active_agent_id_fkey FOREIGN KEY (active_agent_id) REFERENCES public.agents(id)
+);
+CREATE TABLE public.agents (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  bot_id uuid NOT NULL,
+  name text NOT NULL,
+  description text,
+  system_prompt text,
+  is_default boolean NOT NULL DEFAULT false,
+  active boolean NOT NULL DEFAULT true,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT agents_pkey PRIMARY KEY (id),
+  CONSTRAINT agents_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id)
 );
 CREATE TABLE public.messages (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -70,8 +86,10 @@ CREATE TABLE public.knowledge_sources (
   metadata jsonb DEFAULT '{}'::jsonb,
   created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
   updated_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
+  agent_id uuid,
   CONSTRAINT knowledge_sources_pkey PRIMARY KEY (id),
-  CONSTRAINT knowledge_sources_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id)
+  CONSTRAINT knowledge_sources_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id),
+  CONSTRAINT knowledge_sources_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES public.agents(id)
 );
 CREATE TABLE public.event_logs (
   id bigint GENERATED ALWAYS AS IDENTITY NOT NULL,
