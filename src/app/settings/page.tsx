@@ -26,6 +26,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import KnowledgeSources from '@/components/KnowledgeSources';
 import WhatsAppStatus from '@/components/WhatsAppStatus';
 import AgentOrchestration from '@/components/AgentOrchestration';
+import BotTools from '@/components/BotTools';
 
 function SettingsContent() {
   const searchParams = useSearchParams();
@@ -177,6 +178,7 @@ function SettingsContent() {
     { name: 'Knowledge Sources', icon: BookOpen },
     { name: 'Integrations', icon: Share2 },
     { name: 'Followups', icon: Clock },
+    { name: 'Tools', icon: Zap },
     { name: 'Evaluation', icon: MessageSquare },
     { name: 'Orchestration', icon: Sparkles },
   ];
@@ -728,6 +730,14 @@ function SettingsContent() {
 
               <div className="h-20" />
             </div>
+          </div>
+        ) : activeTab === 'Tools' ? (
+          <div className="flex-1 overflow-y-auto p-12 bg-[#fcfcfc] dark:bg-zinc-950/50">
+            <BotTools
+              botId={bot.id}
+              toolsEnabled={!!bot.tools_enabled}
+              onToggleTools={(enabled) => setBot({ ...bot, tools_enabled: enabled })}
+            />
           </div>
         ) : activeTab === 'Orchestration' ? (
           <div className="flex-1 overflow-y-auto p-12 bg-[#fcfcfc] dark:bg-zinc-950/50">
