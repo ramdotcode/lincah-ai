@@ -2,16 +2,11 @@
 
 import {
   MessageSquare,
-  Ticket,
-  Phone,
   BarChart3,
   BookOpen,
-  Send,
   Bot,
   Link as LinkIcon,
-  GitBranch,
   Settings,
-  Users,
   HeartPulse,
   Shield,
   ClipboardList
@@ -25,22 +20,16 @@ import { supabase } from '@/lib/supabase-client';
 const sidebarModules: Record<string, any[]> = {
   agents: [
     { icon: Bot, href: '/agents', label: 'AI Agents' },
-    { icon: BookOpen, href: '/knowledge', label: 'Knowledge Base' },
     { icon: LinkIcon, href: '/settings#integrations', label: 'Integrations' },
-    { icon: GitBranch, href: '/flow', label: 'Auto-Flow' },
   ],
   crm: [
     { icon: MessageSquare, href: '/monitor', label: 'Live Monitoring' },
     { icon: BookOpen, href: '/leads', label: 'Lead Database' },
     { icon: ClipboardList, href: '/orders', label: 'Orders' },
-    { icon: Ticket, href: '/tickets', label: 'Support Tickets' },
     { icon: BarChart3, href: '/stats', label: 'Analytics' },
-    { icon: Send, href: '/broadcasts', label: 'Broadcasts' },
   ],
   settings: [
     { icon: Settings, href: '/settings', label: 'General Settings' },
-    { icon: Users, href: '/settings#team', label: 'Team Members' },
-    { icon: Phone, href: '/settings#billing', label: 'Billing & Plan' },
   ]
 };
 
@@ -73,9 +62,9 @@ export default function Sidebar() {
   // Determine active module
   const activeModule = pathname.startsWith('/admin')
     ? 'admin'
-    : pathname.startsWith('/agents') || pathname.startsWith('/knowledge') || pathname.startsWith('/flow')
+    : pathname.startsWith('/agents')
     ? 'agents'
-    : pathname.startsWith('/monitor') || pathname.startsWith('/leads') || pathname.startsWith('/orders') || pathname.startsWith('/stats') || pathname.startsWith('/tickets') || pathname.startsWith('/broadcasts')
+    : pathname.startsWith('/monitor') || pathname.startsWith('/leads') || pathname.startsWith('/orders') || pathname.startsWith('/stats')
     ? 'crm'
     : 'settings';
 
