@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { 
   FileText, 
   Globe, 
@@ -44,6 +44,11 @@ export default function KnowledgeSources({ botId }: { botId: string }) {
   const [newItemName, setNewItemName] = useState('');
   const [saving, setSaving] = useState(false);
   const [urlInput, setUrlInput] = useState('');
+  const itemListRef = useRef<HTMLDivElement>(null);
+
+  const scrollItems = (direction: number) => {
+    itemListRef.current?.scrollBy({ left: direction * 240, behavior: 'smooth' });
+  };
 
   useEffect(() => {
     if (botId) fetchKnowledge();
@@ -697,6 +702,16 @@ export default function KnowledgeSources({ botId }: { botId: string }) {
 
   return (
     <div className="flex flex-col h-full bg-white dark:bg-zinc-950">
+      {/* Shared knowledge notice */}
+      <div className="flex items-start gap-3 mx-4 mt-4 px-4 py-3 bg-blue-50 dark:bg-blue-950/30 border border-blue-200 dark:border-blue-900 rounded-xl">
+        <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0 mt-0.5">i</div>
+        <p className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
+          <span className="font-bold">Knowledge di sini hanya milik bot ini</span> — bot lain di halaman Agents tidak ikut memakainya.
+          Di dalam bot ini, semua sub-agent Orchestration (mis. AI Consumer, AI B2B) membacanya bersama, jadi tidak perlu memilih agent tertentu.
+          Cukup tambahkan sumber lewat tab <span className="font-bold">Text</span> di bawah: klik <span className="font-bold">Add Text</span>, beri nama, tempel isinya, lalu klik <span className="font-bold">Save</span> untuk tiap sumber.
+        </p>
+      </div>
+
       {/* Source Type Tabs */}
       <div className="flex gap-4 p-4 border-b border-app overflow-x-auto no-scrollbar bg-white dark:bg-zinc-950">
         {SOURCE_TYPES.map((type) => (
@@ -718,10 +733,10 @@ export default function KnowledgeSources({ botId }: { botId: string }) {
       </div>
 
       {/* Toolbar & Items */}
-      <div className="flex items-center justify-between p-4 border-b border-app bg-[#fcfcfc] dark:bg-zinc-950/50">
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2">
-            <button 
+      <div className="flex items-center justify-between gap-3 p-4 border-b border-app bg-[#fcfcfc] dark:bg-zinc-950/50">
+        <div className="flex items-center gap-3 flex-1 min-w-0">
+          <div className="flex items-center gap-2 shrink-0">
+            <button
               onClick={() => {
                 setSelectedItemId(null);
                 setIsAdding(true);
@@ -734,36 +749,38 @@ export default function KnowledgeSources({ botId }: { botId: string }) {
               </span>
             </button>
           </div>
-          
-          <div className="h-6 w-px bg-app mx-1" />
 
-          {items.filter(i => i.type === activeSourceType || (activeSourceType === 'text' && !i.type)).map((item) => (
-            <button
-              key={item.id}
-              onClick={() => setSelectedItemId(item.id)}
-              className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold border transition-all ${
-                selectedItemId === item.id
-                  ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20'
-                  : 'bg-white dark:bg-zinc-900 border-app text-muted-app hover:text-main hover:border-gray-300'
-              }`}
-            >
-              {item.name}
-              <motion.span 
-                initial={false}
-                animate={{ opacity: selectedItemId === item.id ? 1 : 0.5 }}
+          <div className="h-6 w-px bg-app mx-1 shrink-0" />
+
+          <div ref={itemListRef} className="flex items-center gap-3 overflow-x-auto no-scrollbar min-w-0">
+            {items.filter(i => i.type === activeSourceType || (activeSourceType === 'text' && !i.type)).map((item) => (
+              <button
+                key={item.id}
+                onClick={() => setSelectedItemId(item.id)}
+                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-bold border transition-all shrink-0 whitespace-nowrap ${
+                  selectedItemId === item.id
+                    ? 'bg-blue-600 border-blue-600 text-white shadow-lg shadow-blue-500/20'
+                    : 'bg-white dark:bg-zinc-900 border-app text-muted-app hover:text-main hover:border-gray-300'
+                }`}
               >
-                <Edit2 className="w-3.5 h-3.5 ml-1" />
-              </motion.span>
-            </button>
-          ))}
+                {item.name}
+                <motion.span
+                  initial={false}
+                  animate={{ opacity: selectedItemId === item.id ? 1 : 0.5 }}
+                >
+                  <Edit2 className="w-3.5 h-3.5 ml-1" />
+                </motion.span>
+              </button>
+            ))}
+          </div>
         </div>
 
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           <div className="flex border border-app rounded-xl overflow-hidden bg-white dark:bg-zinc-900 shadow-sm">
-            <button className="p-2.5 hover:bg-muted text-muted-app border-r border-app transition-colors">
+            <button onClick={() => scrollItems(-1)} className="p-2.5 hover:bg-muted text-muted-app border-r border-app transition-colors">
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <button className="p-2.5 hover:bg-muted text-muted-app transition-colors">
+            <button onClick={() => scrollItems(1)} className="p-2.5 hover:bg-muted text-muted-app transition-colors">
               <ChevronRight className="w-4 h-4" />
             </button>
           </div>
