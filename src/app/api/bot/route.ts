@@ -21,13 +21,7 @@ async function getSupabase() {
 
 export async function GET() {
   const supabase = await getSupabase();
-  let { data: { user } } = await supabase.auth.getUser();
-  
-  if (!user) {
-    const { data: users } = await supabaseAdmin.auth.admin.listUsers();
-    if (users && users.users.length > 0) user = users.users[0] as any;
-  }
-
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { data, error } = await supabaseAdmin
@@ -42,13 +36,7 @@ export async function GET() {
 
 export async function POST(req: NextRequest) {
   const supabase = await getSupabase();
-  let { data: { user } } = await supabase.auth.getUser();
-  
-  if (!user) {
-    const { data: users } = await supabaseAdmin.auth.admin.listUsers();
-    if (users && users.users.length > 0) user = users.users[0] as any;
-  }
-
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await req.json();
@@ -86,6 +74,14 @@ export async function POST(req: NextRequest) {
 
   // If there's an ID, we include it for UPSERT to work
   if (body.id) {
+    const { data: existing } = await supabaseAdmin
+      .from('bots')
+      .select('user_id')
+      .eq('id', body.id)
+      .maybeSingle();
+    if (existing && existing.user_id !== user.id) {
+      return NextResponse.json({ error: 'Forbidden: not your bot' }, { status: 403 });
+    }
     botData.id = body.id;
   }
 
@@ -113,9 +109,22 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const supabase = await getSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 });
+
+  const { data: existing } = await supabaseAdmin
+    .from('bots')
+    .select('user_id')
+    .eq('id', id)
+    .maybeSingle();
+  if (existing && existing.user_id !== user.id) {
+    return NextResponse.json({ error: 'Forbidden: not your bot' }, { status: 403 });
+  }
 
   const { error } = await supabaseAdmin.from('bots').delete().eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

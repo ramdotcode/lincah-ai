@@ -20,21 +20,29 @@ async function getSupabase() {
   );
 }
 
+// Pastikan bot milik user sebelum operasi apa pun pada knowledge-nya
+async function ownsBot(userId: string, botId: string): Promise<boolean> {
+  const { data } = await supabaseAdmin
+    .from('bots')
+    .select('id')
+    .eq('id', botId)
+    .eq('user_id', userId)
+    .maybeSingle();
+  return !!data;
+}
+
 export async function GET(req: NextRequest) {
   const supabase = await getSupabase();
-  let { data: { user } } = await supabase.auth.getUser();
-  
-  if (!user) {
-    const { data: users } = await supabaseAdmin.auth.admin.listUsers();
-    if (users && users.users.length > 0) user = users.users[0] as any;
-  }
-
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { searchParams } = new URL(req.url);
   const botId = searchParams.get('botId');
 
   if (!botId) return NextResponse.json({ error: 'botId required' }, { status: 400 });
+  if (!(await ownsBot(user.id, botId))) {
+    return NextResponse.json({ error: 'Forbidden: not your bot' }, { status: 403 });
+  }
 
   const { data, error } = await supabaseAdmin
     .from('knowledge_sources')
@@ -48,17 +56,15 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const supabase = await getSupabase();
-  let { data: { user } } = await supabase.auth.getUser();
-  
-  if (!user) {
-    const { data: users } = await supabaseAdmin.auth.admin.listUsers();
-    if (users && users.users.length > 0) user = users.users[0] as any;
-  }
-
+  const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const body = await req.json();
-  
+
+  if (!body.bot_id || !(await ownsBot(user.id, body.bot_id))) {
+    return NextResponse.json({ error: 'Forbidden: not your bot' }, { status: 403 });
+  }
+
   const { data, error } = await supabaseAdmin
     .from('knowledge_sources')
     .upsert({
@@ -86,16 +92,24 @@ export async function POST(req: NextRequest) {
 }
 
 export async function DELETE(req: NextRequest) {
+  const supabase = await getSupabase();
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+
   const { searchParams } = new URL(req.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'ID required' }, { status: 400 });
 
-  // Ambil bot_id dulu untuk invalidasi cache setelah delete
+  // Ambil bot_id dulu untuk cek kepemilikan + invalidasi cache setelah delete
   const { data: existing } = await supabaseAdmin
     .from('knowledge_sources')
     .select('bot_id')
     .eq('id', id)
     .maybeSingle();
+
+  if (existing?.bot_id && !(await ownsBot(user.id, existing.bot_id))) {
+    return NextResponse.json({ error: 'Forbidden: not your bot' }, { status: 403 });
+  }
 
   const { error } = await supabaseAdmin.from('knowledge_sources').delete().eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });

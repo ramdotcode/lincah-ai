@@ -21,12 +21,7 @@ async function getSupabase() {
 
 async function getUser() {
   const supabase = await getSupabase();
-  let { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    const { data: users } = await supabaseAdmin.auth.admin.listUsers();
-    if (users && users.users.length > 0) user = users.users[0] as any;
-  }
+  const { data: { user } } = await supabase.auth.getUser();
   return user;
 }
 

@@ -5,7 +5,7 @@ import { isAdmin } from './roles';
 
 // Helper auth bersama untuk API routes (dipakai untuk mengamankan route
 // conversations/stats/reply/suggest — sebelumnya tanpa auth sama sekali).
-// Pola sama dengan route bot/agents: sesi Supabase + dev bypass user pertama.
+// Sesi dibaca dari cookie Supabase; tanpa sesi valid = tidak terautentikasi.
 
 export async function getAuthUser() {
   const cookieStore = await cookies();
@@ -21,12 +21,7 @@ export async function getAuthUser() {
     }
   );
 
-  let { data: { user } } = await supabase.auth.getUser();
-
-  if (!user) {
-    const { data: users } = await supabaseAdmin.auth.admin.listUsers();
-    if (users && users.users.length > 0) user = users.users[0] as any;
-  }
+  const { data: { user } } = await supabase.auth.getUser();
   return user;
 }
 

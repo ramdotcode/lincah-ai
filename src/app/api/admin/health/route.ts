@@ -1,8 +1,16 @@
 import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { getAuthUser } from '@/lib/apiAuth';
+import { isAdmin } from '@/lib/roles';
 
 export async function GET() {
   try {
+    const user = await getAuthUser();
+    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    if (!(await isAdmin(user.id))) {
+      return NextResponse.json({ error: 'Forbidden: admin only' }, { status: 403 });
+    }
+
     const now = new Date();
     const jakartaOffset = 7 * 60; // UTC+7
     const todayStart = new Date(now.getTime() + jakartaOffset * 60000);

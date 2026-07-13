@@ -19,14 +19,7 @@ export async function POST(req: NextRequest) {
       }
     );
 
-    let { data: { user } } = await supabase.auth.getUser();
-    
-    // Development Bypass: Jika session tidak terbaca, gunakan user pertama dari database
-    if (!user) {
-        const { data: users } = await supabaseAdmin.auth.admin.listUsers();
-        if (users && users.users.length > 0) user = users.users[0] as any;
-    }
-
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { botId, systemPrompt, history, message, transferCondition, aiModel } = await req.json();

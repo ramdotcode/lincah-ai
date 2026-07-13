@@ -23,13 +23,7 @@ async function getSupabase() {
 export async function PATCH(req: NextRequest) {
   try {
     const supabase = await getSupabase();
-    let { data: { user } } = await supabase.auth.getUser();
-
-    if (!user) {
-      const { data: users } = await supabaseAdmin.auth.admin.listUsers();
-      if (users && users.users.length > 0) user = users.users[0] as any;
-    }
-
+    const { data: { user } } = await supabase.auth.getUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
     const { id, stage } = await req.json();
