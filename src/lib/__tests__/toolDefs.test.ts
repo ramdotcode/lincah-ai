@@ -4,6 +4,7 @@ import {
   searchProducts,
   findShippingRate,
   parseOrderArgs,
+  parseContactArgs,
   formatStockResult,
   formatShippingResult,
   BotTool,
@@ -132,5 +133,42 @@ describe('parseOrderArgs', () => {
   it('rejects null/garbage args', () => {
     expect(parseOrderArgs(null).order).toBeNull();
     expect(parseOrderArgs('x').order).toBeNull();
+  });
+});
+
+describe('parseContactArgs', () => {
+  it('accepts partial fields and trims them', () => {
+    const { fields, error } = parseContactArgs({ name: '  Budi  ', email: 'budi@x.com' });
+    expect(error).toBeUndefined();
+    expect(fields).toEqual({ name: 'Budi', email: 'budi@x.com' });
+  });
+
+  it('drops empty/whitespace-only fields', () => {
+    const { fields } = parseContactArgs({ name: 'Budi', phone: '   ', company: '' });
+    expect(fields).toEqual({ name: 'Budi' });
+  });
+
+  it('rejects when no field is filled', () => {
+    expect(parseContactArgs({}).fields).toBeNull();
+    expect(parseContactArgs({ name: '  ' }).fields).toBeNull();
+  });
+
+  it('rejects null/garbage args', () => {
+    expect(parseContactArgs(null).fields).toBeNull();
+    expect(parseContactArgs('x').fields).toBeNull();
+  });
+
+  it('caps field lengths (200 for fields, 1000 for notes)', () => {
+    const { fields } = parseContactArgs({
+      name: 'a'.repeat(300),
+      notes: 'b'.repeat(2000),
+    });
+    expect(fields?.name).toHaveLength(200);
+    expect(fields?.notes).toHaveLength(1000);
+  });
+
+  it('ignores non-string values', () => {
+    const { fields } = parseContactArgs({ name: 123, email: 'x@y.com' });
+    expect(fields).toEqual({ email: 'x@y.com' });
   });
 });

@@ -24,13 +24,15 @@ const sidebarModules: Record<string, any[]> = {
     { icon: Bot, href: '/agents', label: 'AI Agents' },
     { icon: LinkIcon, href: '/platforms', label: 'Connected Platforms' },
   ],
-  crm: [
+  chat: [
     { icon: MessageSquare, href: '/monitor', label: 'Live Monitoring' },
+    { icon: Ticket, href: '/tickets', label: 'Tickets' },
+    { icon: BarChart3, href: '/stats', label: 'Analytics' },
+  ],
+  crm: [
     { icon: BookOpen, href: '/leads', label: 'Lead Database' },
     { icon: Users, href: '/contacts', label: 'Contacts' },
-    { icon: Ticket, href: '/tickets', label: 'Tickets' },
     { icon: ClipboardList, href: '/orders', label: 'Orders' },
-    { icon: BarChart3, href: '/stats', label: 'Analytics' },
   ],
   settings: [
     { icon: Settings, href: '/settings', label: 'General Settings' },
@@ -68,7 +70,9 @@ export default function Sidebar() {
     ? 'admin'
     : pathname.startsWith('/agents') || pathname.startsWith('/dashboard') || pathname.startsWith('/platforms')
     ? 'agents'
-    : pathname.startsWith('/monitor') || pathname.startsWith('/leads') || pathname.startsWith('/contacts') || pathname.startsWith('/tickets') || pathname.startsWith('/orders') || pathname.startsWith('/stats')
+    : pathname.startsWith('/monitor') || pathname.startsWith('/tickets') || pathname.startsWith('/stats')
+    ? 'chat'
+    : pathname.startsWith('/leads') || pathname.startsWith('/contacts') || pathname.startsWith('/orders')
     ? 'crm'
     : 'settings';
 

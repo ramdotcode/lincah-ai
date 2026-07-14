@@ -2,8 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
-
-const VALID_STAGES = ['new', 'interested', 'negotiating', 'won', 'lost'];
+import { getStagesForUser } from '@/lib/pipelineStages';
 
 async function getSupabase() {
   const cookieStore = await cookies();
@@ -31,8 +30,13 @@ export async function PATCH(req: NextRequest) {
     if (!id || !stage) {
       return NextResponse.json({ error: 'ID and stage are required' }, { status: 400 });
     }
-    if (!VALID_STAGES.includes(stage)) {
-      return NextResponse.json({ error: `Invalid stage. Valid: ${VALID_STAGES.join(', ')}` }, { status: 400 });
+    // Validasi terhadap stage pipeline milik akun (custom, Fase 7)
+    const stages = await getStagesForUser(user.id);
+    if (!stages.some(s => s.key === stage)) {
+      return NextResponse.json(
+        { error: `Invalid stage. Valid: ${stages.map(s => s.key).join(', ')}` },
+        { status: 400 }
+      );
     }
 
     // Cek kepemilikan: conversation harus milik bot user ini

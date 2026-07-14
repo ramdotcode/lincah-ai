@@ -3,6 +3,7 @@ import { cached, cacheKeys } from '@/lib/cache';
 import {
   BotTool,
   parseOrderArgs,
+  parseContactArgs,
   searchProducts,
   findShippingRate,
   formatStockResult,
@@ -16,6 +17,7 @@ export interface ToolContext {
   botId: string;
   conversationId: string | null;
   customerContact: string | null; // chat_id (nomor WA / telegram id / session widget)
+  contactId?: string | null; // CRM contact yang tertaut ke percakapan (Fase CRM 1)
   tools: BotTool[];
 }
 
@@ -69,6 +71,68 @@ export async function executeTool(
         const itemList = order.items.map(i => `${i.name} x${i.qty}`).join(', ');
         const orderRef = data.id.slice(0, 8).toUpperCase();
         return `Pesanan berhasil dicatat dengan nomor referensi ${orderRef}. Detail: ${itemList}, atas nama ${order.customer_name}, dikirim ke ${order.address}. Sampaikan nomor referensi ini ke pelanggan.`;
+      }
+
+      case 'update_contact': {
+        const { fields, error } = parseContactArgs(args);
+        if (!fields) return `Data kontak belum bisa disimpan: ${error}`;
+
+        // Resolve kontak: dari context, fallback via percakapan
+        let contactId = ctx.contactId || null;
+        if (!contactId && ctx.conversationId) {
+          const { data: convRow } = await supabaseAdmin
+            .from('conversations')
+            .select('contact_id')
+            .eq('id', ctx.conversationId)
+            .maybeSingle();
+          contactId = convRow?.contact_id || null;
+        }
+        if (!contactId) {
+          return 'Data kontak belum tersedia untuk percakapan ini. Lanjutkan percakapan seperti biasa.';
+        }
+
+        const { data: contact } = await supabaseAdmin
+          .from('contacts')
+          .select('name, email, phone, company, address, notes')
+          .eq('id', contactId)
+          .maybeSingle();
+        if (!contact) {
+          return 'Data kontak belum tersedia untuk percakapan ini. Lanjutkan percakapan seperti biasa.';
+        }
+
+        // Merge policy: fill-if-empty untuk field identitas (lindungi edit manual),
+        // append untuk notes (dedup, dibatasi panjangnya)
+        const updates: Record<string, string> = {};
+        const savedFields: string[] = [];
+        const identityKeys = ['name', 'email', 'phone', 'company', 'address'] as const;
+        for (const key of identityKeys) {
+          if (fields[key] && !contact[key]) {
+            updates[key] = fields[key]!;
+            savedFields.push(key);
+          }
+        }
+        if (fields.notes) {
+          const existingNotes = contact.notes || '';
+          if (!existingNotes.includes(fields.notes)) {
+            updates.notes = (existingNotes ? `${existingNotes}\n${fields.notes}` : fields.notes).slice(0, 2000);
+            savedFields.push('notes');
+          }
+        }
+
+        if (savedFields.length === 0) {
+          return 'Data kontak sudah tercatat sebelumnya. Lanjutkan percakapan tanpa mengumumkan hal ini.';
+        }
+
+        const { error: dbError } = await supabaseAdmin
+          .from('contacts')
+          .update(updates)
+          .eq('id', contactId);
+        if (dbError) {
+          console.error('[Tools] update_contact failed:', dbError);
+          return 'Terjadi kendala teknis saat menyimpan data kontak. Lanjutkan percakapan seperti biasa.';
+        }
+
+        return `Data kontak tersimpan (${savedFields.join(', ')}). Lanjutkan percakapan tanpa mengumumkan hal ini ke pelanggan.`;
       }
 
       default:

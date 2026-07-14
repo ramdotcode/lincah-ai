@@ -1,7 +1,14 @@
-// Aturan transisi stage CRM (Fase A4).
+// Aturan transisi stage CRM (Fase A4, diperluk untuk stage custom Fase 7).
 // Logika murni dipisah dari I/O supaya bisa di-unit-test.
 
+// Default order/lost (perilaku lama) dipakai bila konfigurasi stage tidak diberikan.
 export const STAGE_ORDER = ['new', 'interested', 'negotiating', 'won'];
+const DEFAULT_LOST = ['lost'];
+
+export interface StageConfig {
+  order: string[];    // stage 'open' urut posisi, diikuti 'won' (tidak termasuk 'lost')
+  lostKeys: string[]; // stage bertipe 'lost'
+}
 
 export interface StageAdvanceInput {
   currentStage: string | null;
@@ -12,20 +19,25 @@ export interface StageAdvanceInput {
 }
 
 // AI hanya boleh menaikkan stage:
-// - forward-only (new → interested → negotiating → won); 'lost' tidak pernah otomatis
+// - forward-only mengikuti urutan config.order; stage 'lost' tidak pernah otomatis
 // - stage manual tidak ditimpa kecuali ada pesan pelanggan baru setelah stage_updated_at
-export function shouldAdvanceStage(input: StageAdvanceInput): boolean {
+export function shouldAdvanceStage(
+  input: StageAdvanceInput,
+  config: StageConfig = { order: STAGE_ORDER, lostKeys: DEFAULT_LOST }
+): boolean {
   const { currentStage, proposedStage, stageUpdatedBy, stageUpdatedAt, lastCustomerMessageAt } = input;
+  const { order, lostKeys } = config;
 
   if (!proposedStage) return false;
 
-  const currentIdx = STAGE_ORDER.indexOf(currentStage || 'new');
-  const proposedIdx = STAGE_ORDER.indexOf(proposedStage);
+  const currentIdx = order.indexOf(currentStage || order[0] || 'new');
+  const proposedIdx = order.indexOf(proposedStage);
 
-  // 'lost' (atau nilai tak dikenal) tidak pernah di-set otomatis oleh AI
+  // Stage 'lost' (atau nilai tak dikenal) tidak pernah di-set otomatis oleh AI
   if (proposedIdx === -1) return false;
-  // stage 'lost' manual hanya boleh dinaikkan lagi lewat aturan manual-override di bawah
-  if (currentIdx === -1 && currentStage === 'lost') {
+
+  // Stage 'lost' manual hanya boleh dinaikkan lagi lewat aturan manual-override di bawah
+  if (currentIdx === -1 && lostKeys.includes(currentStage || '')) {
     if (stageUpdatedBy === 'manual' && stageUpdatedAt &&
         new Date(lastCustomerMessageAt) <= new Date(stageUpdatedAt)) {
       return false;

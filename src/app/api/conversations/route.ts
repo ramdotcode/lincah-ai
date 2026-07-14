@@ -8,22 +8,41 @@ export async function GET() {
     const user = await getAuthUser();
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-    let query = supabaseAdmin
-      .from('conversations')
-      .select('*')
-      .order('last_message_at', { ascending: false });
-
-    // Admin melihat semua; owner hanya percakapan milik bot-nya
-    if (!(await isAdmin(user.id))) {
-      const botIds = await getOwnedBotIds(user.id);
+    const adminView = await isAdmin(user.id);
+    let botIds: string[] = [];
+    if (!adminView) {
+      botIds = await getOwnedBotIds(user.id);
       if (botIds.length === 0) return NextResponse.json([]);
-      query = query.in('bot_id', botIds);
     }
 
-    const { data, error } = await query;
+    const buildQuery = (select: string) => {
+      let q = supabaseAdmin
+        .from('conversations')
+        .select(select)
+        .order('last_message_at', { ascending: false });
+      if (!adminView) q = q.in('bot_id', botIds);
+      return q;
+    };
 
-    if (error) throw error;
-    return NextResponse.json(data);
+    // Coba embed labels; fail-open ke select polos kalau migrasi 0020 belum jalan
+    let { data, error } = await buildQuery('*, conversation_labels(labels(id, name, color))');
+    if (error) {
+      ({ data, error } = await buildQuery('*'));
+      if (error) throw error;
+    }
+
+    // Ratakan embed label jadi conversations[].labels = [{id, name, color}]
+    const flattened = (data || []).map((row: any) => {
+      const { conversation_labels, ...conv } = row;
+      return {
+        ...conv,
+        labels: (conversation_labels || [])
+          .map((cl: any) => cl.labels)
+          .filter(Boolean),
+      };
+    });
+
+    return NextResponse.json(flattened);
   } catch (error: any) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }

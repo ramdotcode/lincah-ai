@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Wrench, Package, Truck, ClipboardList, Loader2, Plus, Trash2, Zap } from 'lucide-react';
+import { Wrench, Package, Truck, ClipboardList, Loader2, Plus, Trash2, Zap, UserPlus } from 'lucide-react';
 
 interface ToolRow {
   id?: string;
-  tool_type: 'check_stock' | 'check_shipping' | 'create_order';
+  tool_type: 'check_stock' | 'check_shipping' | 'create_order' | 'update_contact';
   enabled: boolean;
   config: Record<string, any>;
 }
@@ -14,6 +14,7 @@ const DEFAULT_TOOLS: ToolRow[] = [
   { tool_type: 'check_stock', enabled: false, config: { products: [] } },
   { tool_type: 'check_shipping', enabled: false, config: { rates: [] } },
   { tool_type: 'create_order', enabled: false, config: {} },
+  { tool_type: 'update_contact', enabled: false, config: {} },
 ];
 
 const TOOL_META = {
@@ -37,6 +38,13 @@ const TOOL_META = {
     desc: 'AI mencatat pesanan (nama, barang, alamat) ke halaman Orders setelah pelanggan konfirmasi.',
     color: 'text-amber-500',
     bg: 'bg-amber-500/10',
+  },
+  update_contact: {
+    icon: UserPlus,
+    title: 'Simpan Data Kontak (CRM)',
+    desc: 'AI otomatis menyimpan nama, email, telepon, dan kebutuhan pelanggan ke halaman Contacts.',
+    color: 'text-violet-500',
+    bg: 'bg-violet-500/10',
   },
 };
 
@@ -259,6 +267,12 @@ export default function BotTools({
             {tool.tool_type === 'create_order' && tool.enabled && (
               <p className="text-[10px] text-muted-app pt-3 border-t border-app">
                 Pesanan yang dicatat AI muncul di halaman <span className="font-bold">Orders</span>. AI diminta konfirmasi dulu ke pelanggan sebelum mencatat.
+              </p>
+            )}
+
+            {tool.tool_type === 'update_contact' && tool.enabled && (
+              <p className="text-[10px] text-muted-app pt-3 border-t border-app">
+                Data yang ditangkap AI muncul di halaman <span className="font-bold">Contacts</span> (modul CRM). AI hanya mengisi kolom yang masih kosong — data hasil edit manual tidak akan ditimpa.
               </p>
             )}
 

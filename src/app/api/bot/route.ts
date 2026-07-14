@@ -56,10 +56,12 @@ export async function POST(req: NextRequest) {
     // Kolom whatsapp_* tidak ditulis lagi — koneksi WA sekarang level akun
     // (tabel whatsapp_connections via /api/platforms/whatsapp)
     followup_enabled: body.followup_enabled,
+    followup_mode: body.followup_mode === 'ai' ? 'ai' : 'template',
     followup_delay_hours: body.followup_delay_hours,
     followup_max_count: body.followup_max_count,
     followup_template: body.followup_template,
     followup_stages: body.followup_stages,
+    followup_label_ids: Array.isArray(body.followup_label_ids) ? body.followup_label_ids : undefined,
     followup_wa_hourly_limit: body.followup_wa_hourly_limit,
     tools_enabled: body.tools_enabled,
     widget_enabled: body.widget_enabled,

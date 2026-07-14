@@ -2,10 +2,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import LayoutShell from '@/components/LayoutShell';
-import { 
-  Send, 
-  Loader2, 
-  User, 
+import {
+  Send,
+  Loader2,
+  User,
   Search,
   RefreshCw,
   MoreVertical,
@@ -13,6 +13,7 @@ import {
   Circle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import ConversationLabels, { Label, LABEL_STYLE } from '@/components/ConversationLabels';
 
 export default function MonitorPage() {
   const [conversations, setConversations] = useState<any[]>([]);
@@ -22,6 +23,8 @@ export default function MonitorPage() {
   const [isSuggesting, setIsSuggesting] = useState(false);
   const [sending, setSending] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [allLabels, setAllLabels] = useState<Label[]>([]);
+  const [filterLabelId, setFilterLabelId] = useState<string>('');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const fetchConversations = async () => {
@@ -31,15 +34,42 @@ export default function MonitorPage() {
       if (res.ok) {
         const data = await res.json();
         setConversations(data || []);
+        return data || [];
       }
     } finally {
       setLoading(false);
     }
+    return [];
   };
 
   useEffect(() => {
-    fetchConversations();
+    (async () => {
+      const data = await fetchConversations();
+      // Auto-buka percakapan dari link ?id= (mis. dari halaman Contacts)
+      const id = new URLSearchParams(window.location.search).get('id');
+      if (id) {
+        const conv = data.find((c: any) => c.id === id);
+        if (conv) setSelectedConv(conv);
+      }
+    })();
+    // Label akun (fail-open: sebelum migrasi 0020, biarkan kosong)
+    (async () => {
+      try {
+        const res = await fetch('/api/labels');
+        if (res.ok) setAllLabels((await res.json()) || []);
+      } catch { /* label belum tersedia */ }
+    })();
   }, []);
+
+  // Sinkronkan perubahan label percakapan ke state list + selected
+  const applyConvLabels = (convId: string, labels: Label[]) => {
+    setConversations(prev => prev.map(c => (c.id === convId ? { ...c, labels } : c)));
+    setSelectedConv((prev: any) => (prev?.id === convId ? { ...prev, labels } : prev));
+  };
+
+  const visibleConversations = filterLabelId
+    ? conversations.filter(c => (c.labels || []).some((l: Label) => l.id === filterLabelId))
+    : conversations;
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -84,23 +114,46 @@ export default function MonitorPage() {
               <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
             </button>
           </div>
-          <div className="px-4 pb-4">
+          <div className="px-4 pb-4 space-y-2">
              <div className="relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-app w-3.5 h-3.5" />
-                <input 
-                  type="text" 
-                  placeholder="Find a chat..." 
+                <input
+                  type="text"
+                  placeholder="Find a chat..."
                   className="w-full bg-muted border border-transparent rounded-lg px-9 py-1.5 text-xs focus:bg-card-app focus:border-blue-500/50 outline-none transition-all text-main"
                 />
              </div>
+             {allLabels.length > 0 && (
+               <div className="flex flex-wrap gap-1.5">
+                 <button
+                   onClick={() => setFilterLabelId('')}
+                   className={`px-2 py-0.5 rounded-full text-[9px] font-bold transition-colors ${
+                     !filterLabelId ? 'bg-blue-600 text-white' : 'bg-muted text-muted-app hover:text-main'
+                   }`}
+                 >
+                   All
+                 </button>
+                 {allLabels.map((label) => (
+                   <button
+                     key={label.id}
+                     onClick={() => setFilterLabelId(filterLabelId === label.id ? '' : label.id)}
+                     className={`px-2 py-0.5 rounded-full text-[9px] font-bold transition-all ${
+                       LABEL_STYLE[label.color] || LABEL_STYLE.blue
+                     } ${filterLabelId === label.id ? 'ring-1 ring-blue-500' : 'opacity-80 hover:opacity-100'}`}
+                   >
+                     {label.name}
+                   </button>
+                 ))}
+               </div>
+             )}
           </div>
           <div className="flex-1 overflow-y-auto">
-            {conversations.length === 0 ? (
+            {visibleConversations.length === 0 ? (
                 <div className="p-8 text-center text-muted-app text-xs italic">
-                    No active chats.
+                    {filterLabelId ? 'No chats with this label.' : 'No active chats.'}
                 </div>
             ) : (
-                conversations.map((conv) => (
+                visibleConversations.map((conv) => (
                     <button
                         key={conv.id}
                         onClick={() => setSelectedConv(conv)}
@@ -120,6 +173,15 @@ export default function MonitorPage() {
                             <p className="text-[11px] text-muted-app truncate">
                                 {conv.history[conv.history.length - 1]?.content || "No messages"}
                             </p>
+                            {(conv.labels || []).length > 0 && (
+                                <span className="flex flex-wrap gap-1 mt-1">
+                                    {(conv.labels as Label[]).slice(0, 3).map((label) => (
+                                        <span key={label.id} className={`px-1.5 py-px rounded-full text-[8px] font-bold ${LABEL_STYLE[label.color] || LABEL_STYLE.blue}`}>
+                                            {label.name}
+                                        </span>
+                                    ))}
+                                </span>
+                            )}
                         </div>
                         {conv.status === 'pending' && (
                             <Circle className="w-2 h-2 fill-amber-500 text-amber-500" />
@@ -257,7 +319,29 @@ export default function MonitorPage() {
                     </div>
                     
                     <div className="flex-1 p-4 overflow-y-auto space-y-6">
-                        <div className="space-y-3">
+                        <ConversationLabels
+                            conversationId={selectedConv.id}
+                            labels={selectedConv.labels || []}
+                            allLabels={allLabels}
+                            onLabelsChange={(labels) => applyConvLabels(selectedConv.id, labels)}
+                            onLabelCreated={(label) => setAllLabels(prev => [...prev, label])}
+                            onLabelUpdated={(label) => setAllLabels(prev => prev.map(l => (l.id === label.id ? label : l)))}
+                            onLabelDeleted={(labelId) => {
+                                setAllLabels(prev => prev.filter(l => l.id !== labelId));
+                                if (filterLabelId === labelId) setFilterLabelId('');
+                                // label yang dihapus ikut lenyap dari semua percakapan (FK cascade)
+                                setConversations(prev => prev.map(c => ({
+                                    ...c,
+                                    labels: (c.labels || []).filter((l: Label) => l.id !== labelId),
+                                })));
+                                setSelectedConv((prev: any) => prev ? {
+                                    ...prev,
+                                    labels: (prev.labels || []).filter((l: Label) => l.id !== labelId),
+                                } : prev);
+                            }}
+                        />
+
+                        <div className="space-y-3 pt-4 border-t border-app">
                             <p className="text-[10px] text-muted-app font-medium leading-relaxed">
                                 Get a drafting suggestion based on the context of this conversation.
                             </p>

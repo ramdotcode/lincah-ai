@@ -5,10 +5,12 @@ import { processMessage } from '@/lib/ai';
 import { logEvent } from '@/lib/eventLog';
 import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
 import { runStageClassification } from '@/lib/stageClassifier';
+import { runLabelClassification } from '@/lib/labelClassifier';
 import { resolveHandoff, ChildBot } from '@/lib/orchestrator';
 import { fetchBotTools, ToolContext } from '@/lib/tools';
 import { cached, cacheKeys } from '@/lib/cache';
 import { shouldUseRag, retrieveKnowledge } from '@/lib/rag';
+import { ensureContactForConversation } from '@/lib/contacts';
 
 // CORS: widget di-embed di domain pelanggan, jadi endpoint ini harus publik
 const CORS_HEADERS = {
@@ -101,6 +103,19 @@ export async function POST(req: NextRequest) {
       conv = newConv;
     }
 
+    // 2.5 CRM: pastikan percakapan tertaut ke kontak akun (hanya saat belum ter-link).
+    // Nama default 'Web Visitor' tidak disimpan sebagai nama kontak — biarkan AI/manual mengisi.
+    if (!conv.contact_id && bot.user_id) {
+      const trimmedVisitor = typeof visitorName === 'string' ? visitorName.trim().slice(0, 60) : '';
+      const contactId = await ensureContactForConversation(conv.id, {
+        userId: bot.user_id,
+        platform: 'webchat',
+        externalId: chatId,
+        name: trimmedVisitor || null,
+      });
+      if (contactId) conv.contact_id = contactId;
+    }
+
     // 3. Handoff/closed: simpan pesan, AI diam (pengunjung menunggu balasan manusia)
     if (conv.status === 'pending' || (conv.status === 'closed' && bot.stop_ai_after_handoff)) {
       await supabaseAdmin.from('conversations').update({
@@ -135,6 +150,7 @@ export async function POST(req: NextRequest) {
 
     // 4.5 Stage classification paralel
     const stagePromise = runStageClassification({
+      userId: bot.user_id,
       botId: bot.id,
       conversationId: conv.id,
       channel: 'webchat',
@@ -144,6 +160,18 @@ export async function POST(req: NextRequest) {
       stageUpdatedBy: conv.stage_updated_by,
       stageUpdatedAt: conv.stage_updated_at,
     });
+
+    // 4.55 AI auto-label (CRM Fase 4): paralel, tidak menunda balasan
+    const labelPromise = bot.user_id
+      ? runLabelClassification({
+          userId: bot.user_id,
+          botId: bot.id,
+          conversationId: conv.id,
+          channel: 'webchat',
+          history: conv.history || [],
+          userMessage: text,
+        })
+      : Promise.resolve();
 
     // 4.6 Orchestration (parent-child handoff)
     let systemPrompt = bot.system_prompt;
@@ -190,7 +218,7 @@ export async function POST(req: NextRequest) {
     if (bot.tools_enabled) {
       const tools = await fetchBotTools(bot.id);
       if (tools.length > 0) {
-        toolContext = { botId: bot.id, conversationId: conv.id, customerContact: chatId, tools };
+        toolContext = { botId: bot.id, conversationId: conv.id, customerContact: chatId, contactId: conv.contact_id ?? null, tools };
       }
     }
 
@@ -254,7 +282,7 @@ export async function POST(req: NextRequest) {
     }
     await supabaseAdmin.from('conversations').update(updateData).eq('id', conv.id);
 
-    await stagePromise;
+    await Promise.all([stagePromise, labelPromise]);
 
     return NextResponse.json(
       {

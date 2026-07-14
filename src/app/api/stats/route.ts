@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { getAuthUser, getOwnedBotIds } from '@/lib/apiAuth';
 import { isAdmin } from '@/lib/roles';
+import { getStagesForUser } from '@/lib/pipelineStages';
+import { DEFAULT_STAGES } from '@/lib/stageConstants';
 
-const STAGES = ['new', 'interested', 'negotiating', 'won', 'lost'] as const;
 const DAYS = 14;
 
 export async function GET() {
@@ -39,6 +40,9 @@ export async function GET() {
       return q;
     };
 
+    // Stage pipeline custom akun (Fase 7)
+    const stageDefs = await getStagesForUser(user.id);
+
     const since = new Date();
     since.setHours(0, 0, 0, 0);
     since.setDate(since.getDate() - (DAYS - 1));
@@ -72,7 +76,7 @@ export async function GET() {
       scopeEvents('message_processed'),
       scopeEvents('followup_sent'),
       scopeOrders(),
-      Promise.all(STAGES.map(stage => scopeConv().eq('stage', stage).then(r => r.count || 0))),
+      Promise.all(stageDefs.map(s => scopeConv().eq('stage', s.key).then(r => r.count || 0))),
       dailyConvQuery,
       dailyAiQuery,
     ]);
@@ -96,7 +100,26 @@ export async function GET() {
       if (idx !== undefined) daily[idx].aiResponses++;
     }
 
-    const stages = Object.fromEntries(STAGES.map((s, i) => [s, stageCounts[i]]));
+    const stages = Object.fromEntries(stageDefs.map((s, i) => [s.key, stageCounts[i]]));
+    const stageDefsOut = stageDefs.map(s => ({ key: s.key, label: s.label, color: s.color }));
+
+    // Forecast nilai deal (Fase 9): jumlah per tipe stage
+    let dealQuery = supabaseAdmin
+      .from('conversations')
+      .select('stage, deal_value')
+      .not('deal_value', 'is', null);
+    if (botIds) dealQuery = dealQuery.in('bot_id', botIds);
+    const { data: dealRows } = await dealQuery;
+
+    const openKeys = new Set(stageDefs.filter(s => s.type === 'open').map(s => s.key));
+    const wonKeys = new Set(stageDefs.filter(s => s.type === 'won').map(s => s.key));
+    let pipelineValue = 0;
+    let wonValue = 0;
+    for (const r of dealRows || []) {
+      const v = Number(r.deal_value) || 0;
+      if (openKeys.has(r.stage)) pipelineValue += v;
+      else if (wonKeys.has(r.stage)) wonValue += v;
+    }
 
     return NextResponse.json({
       totalConversations: totalConversations || 0,
@@ -104,7 +127,10 @@ export async function GET() {
       aiResponses: aiResponses || 0,
       followupsSent: followupsSent || 0,
       totalOrders: totalOrders || 0,
+      pipelineValue,
+      wonValue,
       stages,
+      stageDefs: stageDefsOut,
       daily,
     });
   } catch (error: any) {
@@ -126,7 +152,10 @@ function emptyStats() {
     aiResponses: 0,
     followupsSent: 0,
     totalOrders: 0,
-    stages: Object.fromEntries(STAGES.map(s => [s, 0])),
+    pipelineValue: 0,
+    wonValue: 0,
+    stages: Object.fromEntries(DEFAULT_STAGES.map(s => [s.key, 0])),
+    stageDefs: DEFAULT_STAGES.map(s => ({ key: s.key, label: s.label, color: s.color })),
     daily: [],
   };
 }

@@ -40,6 +40,10 @@ export const cacheKeys = {
   tools: (botId: string) => `cache:tools:${botId}`,
   // Koneksi WA level akun; key = session key worker (user_id/bot_id) atau phone:<nomor>
   waConnection: (key: string) => `cache:wa-conn:${key}`,
+  // Label akun yang boleh dipasang otomatis oleh AI (CRM Fase 4)
+  aiLabels: (userId: string) => `cache:ai-labels:${userId}`,
+  // Pipeline stage custom per akun (CRM Fase 7)
+  stages: (userId: string) => `cache:stages:${userId}`,
 };
 
 /**

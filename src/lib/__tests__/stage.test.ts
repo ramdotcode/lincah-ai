@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { shouldAdvanceStage } from '../stage';
+import { buildStageOrder, slugifyStageKey, DEFAULT_STAGES } from '../stageConstants';
 
 const NOW = '2026-07-10T12:00:00Z';
 const EARLIER = '2026-07-10T10:00:00Z';
@@ -98,5 +99,59 @@ describe('shouldAdvanceStage', () => {
       stageUpdatedAt: EARLIER,
       lastCustomerMessageAt: NOW,
     })).toBe(true);
+  });
+});
+
+describe('shouldAdvanceStage dengan stage custom (Fase 7)', () => {
+  // Pipeline properti: leads → survey → nego → akad(won), batal(lost)
+  const config = {
+    order: ['leads', 'survey', 'nego', 'akad'],
+    lostKeys: ['batal'],
+  };
+  const cbase = { ...base, currentStage: 'leads', proposedStage: 'survey' };
+
+  it('maju mengikuti urutan custom', () => {
+    expect(shouldAdvanceStage(cbase, config)).toBe(true);
+    expect(shouldAdvanceStage({ ...cbase, proposedStage: 'akad' }, config)).toBe(true);
+  });
+
+  it('menolak mundur di pipeline custom', () => {
+    expect(shouldAdvanceStage({ ...cbase, currentStage: 'nego', proposedStage: 'survey' }, config)).toBe(false);
+  });
+
+  it('tidak pernah set stage lost custom otomatis', () => {
+    expect(shouldAdvanceStage({ ...cbase, proposedStage: 'batal' }, config)).toBe(false);
+  });
+
+  it('lost custom bisa naik lagi kalau ada pesan baru', () => {
+    expect(shouldAdvanceStage({
+      ...cbase, currentStage: 'batal', proposedStage: 'survey',
+      stageUpdatedBy: 'manual', stageUpdatedAt: EARLIER, lastCustomerMessageAt: NOW,
+    }, config)).toBe(true);
+  });
+});
+
+describe('buildStageOrder', () => {
+  it('urutan = open (per posisi) lalu won, lost terpisah', () => {
+    const { order, lostKeys } = buildStageOrder(DEFAULT_STAGES);
+    expect(order).toEqual(['new', 'interested', 'negotiating', 'won']);
+    expect(lostKeys).toEqual(['lost']);
+  });
+
+  it('menghormati posisi acak', () => {
+    const shuffled = [
+      { key: 'b', label: 'B', color: 'blue', position: 1, type: 'open' as const },
+      { key: 'a', label: 'A', color: 'blue', position: 0, type: 'open' as const },
+      { key: 'w', label: 'W', color: 'emerald', position: 2, type: 'won' as const },
+    ];
+    expect(buildStageOrder(shuffled).order).toEqual(['a', 'b', 'w']);
+  });
+});
+
+describe('slugifyStageKey', () => {
+  it('mengubah label jadi slug stabil', () => {
+    expect(slugifyStageKey('Survey Lapangan')).toBe('survey-lapangan');
+    expect(slugifyStageKey('DP / Booking!')).toBe('dp-booking');
+    expect(slugifyStageKey('  Akad  ')).toBe('akad');
   });
 });

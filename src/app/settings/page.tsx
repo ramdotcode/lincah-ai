@@ -26,6 +26,8 @@ import { motion } from 'framer-motion';
 import KnowledgeSources from '@/components/KnowledgeSources';
 import OrchestrationCanvas from '@/components/OrchestrationCanvas';
 import BotTools from '@/components/BotTools';
+import PipelineStages from '@/components/PipelineStages';
+import { DEFAULT_STAGES, PipelineStageDef } from '@/lib/stageConstants';
 
 function SettingsContent() {
   const searchParams = useSearchParams();
@@ -37,7 +39,9 @@ function SettingsContent() {
   const [saving, setSaving] = useState(false);
   const [showSaved, setShowSaved] = useState(false);
   const [bot, setBot] = useState<any>(null);
-  
+  const [stages, setStages] = useState<PipelineStageDef[]>(DEFAULT_STAGES);
+  const [labels, setLabels] = useState<Array<{ id: string; name: string; color: string }>>([]);
+
   // State for Simulator
   const [testMessage, setTestMessage] = useState('');
   const [isTestLoading, setIsTestLoading] = useState(false);
@@ -70,6 +74,29 @@ function SettingsContent() {
   useEffect(() => {
     if (botId) fetchBot();
   }, [botId]);
+
+  // Stage pipeline akun (Fase 7) — level akun, dipakai tab Pipeline & selector Followups
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch('/api/pipeline-stages');
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data) && data.length) setStages(data);
+        }
+      } catch { /* pakai default */ }
+    })();
+    // Label akun (Fase 8) — untuk trigger follow-up by label
+    (async () => {
+      try {
+        const res = await fetch('/api/labels');
+        if (res.ok) {
+          const data = await res.json();
+          if (Array.isArray(data)) setLabels(data);
+        }
+      } catch { /* label belum ada */ }
+    })();
+  }, []);
 
   const handleSendMessage = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -176,6 +203,7 @@ function SettingsContent() {
     { name: 'General', icon: Settings },
     { name: 'Knowledge Sources', icon: BookOpen },
     { name: 'Integrations', icon: Share2 },
+    { name: 'Pipeline', icon: Kanban },
     { name: 'Followups', icon: Clock },
     { name: 'Evaluation', icon: MessageSquare },
     { name: 'Orchestration', icon: Sparkles },
@@ -492,6 +520,10 @@ function SettingsContent() {
               />
             </div>
           </div>
+        ) : activeTab === 'Pipeline' ? (
+          <div className="flex-1 overflow-y-auto p-12 bg-[#fcfcfc] dark:bg-zinc-950/50">
+            <PipelineStages stages={stages} onChange={setStages} />
+          </div>
         ) : activeTab === 'Followups' ? (
           <div className="flex-1 overflow-y-auto p-12 bg-[#fcfcfc] dark:bg-zinc-950/50">
             <div className="max-w-2xl mx-auto space-y-12">
@@ -522,6 +554,37 @@ function SettingsContent() {
                   />
                   <div className="w-9 h-5 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
                 </label>
+              </div>
+
+              {/* Mode pesan: Template statis vs AI-kontekstual */}
+              <div className="space-y-3">
+                <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest pl-1">Mode pesan follow-up</label>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {[
+                    { key: 'template', title: 'Template', desc: 'Pesan tetap dengan placeholder {nama}. Cepat & hemat.' },
+                    { key: 'ai', title: 'AI Kontekstual', desc: 'AI menyusun pesan dari isi percakapan tiap lead. Lebih relevan.' },
+                  ].map((m) => {
+                    const active = (bot.followup_mode || 'template') === m.key;
+                    return (
+                      <button key={m.key}
+                        onClick={() => setBot({ ...bot, followup_mode: m.key })}
+                        className={`text-left p-4 rounded-2xl border-2 transition-all ${
+                          active
+                            ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-900/10'
+                            : 'border-app bg-card-app hover:border-gray-300'
+                        }`}
+                      >
+                        <span className={`text-xs font-bold block ${active ? 'text-blue-600' : 'text-main'}`}>{m.title}</span>
+                        <span className="text-[10px] text-muted-app">{m.desc}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+                {(bot.followup_mode || 'template') === 'ai' && (
+                  <p className="text-[10px] text-muted-app pl-1">
+                    AI membaca riwayat chat & mengikuti persona bot. Template di bawah dipakai sebagai <span className="font-bold">cadangan</span> bila AI gagal.
+                  </p>
+                )}
               </div>
 
               {bot.whatsapp_enabled && (
@@ -566,17 +629,17 @@ function SettingsContent() {
               <div className="space-y-3">
                 <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest pl-1">Stage yang di-follow-up</label>
                 <div className="flex flex-wrap gap-2">
-                  {['new', 'interested', 'negotiating'].map((stage) => {
-                    const selected = (bot.followup_stages || ['interested', 'negotiating']).includes(stage);
+                  {stages.filter(s => s.type === 'open').map((stage) => {
+                    const selected = (bot.followup_stages || ['interested', 'negotiating']).includes(stage.key);
                     return (
-                      <button key={stage}
+                      <button key={stage.key}
                         onClick={() => {
                           const current = bot.followup_stages || ['interested', 'negotiating'];
                           setBot({
                             ...bot,
                             followup_stages: selected
-                              ? current.filter((s: string) => s !== stage)
-                              : [...current, stage],
+                              ? current.filter((s: string) => s !== stage.key)
+                              : [...current, stage.key],
                           });
                         }}
                         className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all ${
@@ -585,17 +648,52 @@ function SettingsContent() {
                             : 'border-app bg-card-app text-muted-app hover:border-gray-300'
                         }`}
                       >
-                        {stage}
+                        {stage.label}
                       </button>
                     );
                   })}
                 </div>
-                <p className="text-[10px] text-muted-app pl-1">Stage won/lost tidak pernah di-follow-up.</p>
+                <p className="text-[10px] text-muted-app pl-1">Stage tipe Menang/Kalah tidak pernah di-follow-up.</p>
               </div>
+
+              {/* Trigger by label (Fase 8) */}
+              {labels.length > 0 && (
+                <div className="space-y-3">
+                  <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest pl-1">Trigger tambahan by label</label>
+                  <div className="flex flex-wrap gap-2">
+                    {labels.map((label) => {
+                      const selected = (bot.followup_label_ids || []).includes(label.id);
+                      return (
+                        <button key={label.id}
+                          onClick={() => {
+                            const current: string[] = bot.followup_label_ids || [];
+                            setBot({
+                              ...bot,
+                              followup_label_ids: selected
+                                ? current.filter((id) => id !== label.id)
+                                : [...current, label.id],
+                            });
+                          }}
+                          className={`px-4 py-2 rounded-xl text-xs font-bold border-2 transition-all ${
+                            selected
+                              ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-900/10 text-blue-600'
+                              : 'border-app bg-card-app text-muted-app hover:border-gray-300'
+                          }`}
+                        >
+                          {label.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-muted-app pl-1">Percakapan dengan label ini ikut di-follow-up walau stage-nya di luar daftar di atas.</p>
+                </div>
+              )}
 
               {/* Template editor + preview */}
               <div className="space-y-3">
-                <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest pl-1">Template pesan</label>
+                <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest pl-1">
+                  {(bot.followup_mode || 'template') === 'ai' ? 'Template cadangan' : 'Template pesan'}
+                </label>
                 <textarea
                   rows={3}
                   value={bot.followup_template || ''}

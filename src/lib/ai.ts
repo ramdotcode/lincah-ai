@@ -503,29 +503,38 @@ export interface StageClassificationResult {
 
 const LEAD_STAGES = ['new', 'interested', 'negotiating', 'won', 'lost'];
 
-// Mirrors the handoff checker: always Groq 8B, temp 0, one-word answer.
-// Never throws — a failed classification must not disturb the reply flow.
-export async function classifyLeadStage(
-  history: Message[],
-  userMessage: string
-): Promise<StageClassificationResult> {
-  const trimmedHistory = history.slice(-10);
-  const startTime = performance.now();
-
-  try {
-    const response = await groq.chat.completions.create({
-      messages: [
-        {
-          role: 'system',
-          content: `You are a sales pipeline classifier for a customer service bot. Based on the conversation, classify the customer's buying stage.
+const DEFAULT_STAGE_PROMPT = `You are a sales pipeline classifier for a customer service bot. Based on the conversation, classify the customer's buying stage.
 Stages:
 - new: just started, greeting, or asking generic questions
 - interested: asking about products, prices, availability, or showing buying interest
 - negotiating: discussing discounts, payment terms, delivery, or comparing options seriously
 - won: confirmed purchase, paid, or committed to buy
 - lost: explicitly declined, not interested, or bought elsewhere
-Reply ONLY with one word: new, interested, negotiating, won, or lost.`,
-        },
+Reply ONLY with one word: new, interested, negotiating, won, or lost.`;
+
+// Mirrors the handoff checker: always Groq 8B, temp 0, one-word answer.
+// Never throws — a failed classification must not disturb the reply flow.
+// `stages` (Fase 7): daftar stage custom akun {key,label}. Bila diberikan, prompt
+// dibangun dari label-nya & hasil dipetakan balik ke key. Tanpa itu → default 5 stage.
+export async function classifyLeadStage(
+  history: Message[],
+  userMessage: string,
+  stages?: Array<{ key: string; label: string }>
+): Promise<StageClassificationResult> {
+  const trimmedHistory = history.slice(-10);
+  const startTime = performance.now();
+  const useCustom = !!stages && stages.length > 0;
+
+  try {
+    const systemContent = useCustom
+      ? `You are a sales pipeline classifier for a customer service bot. Based on the conversation, classify the customer's current stage into exactly one of these:
+${stages!.map(s => `- ${s.label}`).join('\n')}
+Reply ONLY with one stage label exactly as written above. If none clearly fit, reply: unknown.`
+      : DEFAULT_STAGE_PROMPT;
+
+    const response = await groq.chat.completions.create({
+      messages: [
+        { role: 'system', content: systemContent },
         ...trimmedHistory,
         { role: 'user', content: userMessage },
       ],
@@ -535,7 +544,9 @@ Reply ONLY with one word: new, interested, negotiating, won, or lost.`,
 
     const latencyMs = Math.round(performance.now() - startTime);
     const raw = response.choices[0]?.message?.content?.trim().toLowerCase() || '';
-    const stage = LEAD_STAGES.find(s => raw === s || raw.startsWith(s)) || null;
+    const stage = useCustom
+      ? (stages!.find(s => raw === s.label.toLowerCase() || raw.startsWith(s.label.toLowerCase()))?.key || null)
+      : (LEAD_STAGES.find(s => raw === s || raw.startsWith(s)) || null);
 
     return {
       stage,
@@ -551,6 +562,156 @@ Reply ONLY with one word: new, interested, negotiating, won, or lost.`,
     });
     return {
       stage: null,
+      latencyMs,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export interface LabelClassificationResult {
+  labelIds: string[]; // subset dari kandidat yang menurut model relevan
+  latencyMs: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  errorMessage?: string;
+}
+
+// AI auto-label (CRM Fase 4): pilih label mana dari daftar kandidat yang jelas
+// relevan dengan percakapan. Pola sama dengan classifyLeadStage: Groq 8B, temp 0,
+// tidak pernah throw. Kandidat = label akun yang di-set ai_enabled oleh user.
+export async function classifyLabels(
+  history: Message[],
+  userMessage: string,
+  candidates: Array<{ id: string; name: string }>
+): Promise<LabelClassificationResult> {
+  const trimmedHistory = history.slice(-10);
+  const startTime = performance.now();
+
+  if (candidates.length === 0) {
+    return { labelIds: [], latencyMs: 0 };
+  }
+
+  try {
+    const labelList = candidates.map(c => `- ${c.name}`).join('\n');
+    const response = await groq.chat.completions.create({
+      messages: [
+        {
+          role: 'system',
+          content: `You are a conversation tagger for a customer service bot. Based on the conversation, decide which of the available labels CLEARLY apply.
+Available labels:
+${labelList}
+Rules:
+- Only pick labels that clearly match the conversation content. When in doubt, do not pick.
+- Reply ONLY with the matching label names separated by commas, exactly as written above.
+- If none apply, reply exactly: none`,
+        },
+        ...trimmedHistory,
+        { role: 'user', content: userMessage },
+      ],
+      model: HANDOFF_MODEL,
+      temperature: 0,
+    });
+
+    const latencyMs = Math.round(performance.now() - startTime);
+    const raw = response.choices[0]?.message?.content?.trim().toLowerCase() || '';
+
+    let labelIds: string[] = [];
+    if (raw && raw !== 'none') {
+      const picked = raw.split(',').map(s => s.trim()).filter(Boolean);
+      labelIds = candidates
+        .filter(c => picked.includes(c.name.toLowerCase()))
+        .map(c => c.id);
+    }
+
+    return {
+      labelIds,
+      latencyMs,
+      promptTokens: response.usage?.prompt_tokens,
+      completionTokens: response.usage?.completion_tokens,
+    };
+  } catch (error) {
+    const latencyMs = Math.round(performance.now() - startTime);
+    Sentry.captureException(error, {
+      tags: { model: HANDOFF_MODEL, provider: 'groq', feature: 'label_classification' },
+    });
+    return {
+      labelIds: [],
+      latencyMs,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+export interface FollowupGenerationResult {
+  message: string | null; // null bila model gagal → pemanggil jatuh ke template
+  latencyMs: number;
+  promptTokens?: number;
+  completionTokens?: number;
+  errorMessage?: string;
+}
+
+// AI-contextual follow-up (CRM Fase 5): susun satu pesan follow-up singkat dari
+// riwayat percakapan, dengan nada mengikuti system prompt bot. Groq 70B untuk
+// kualitas. Tidak pernah throw — pemanggil (cron) jatuh ke template bila null.
+const FOLLOWUP_GEN_MODEL = 'llama-3.3-70b-versatile';
+
+export async function generateFollowupMessage(
+  history: Message[],
+  opts: { systemPrompt?: string | null; customerName?: string | null }
+): Promise<FollowupGenerationResult> {
+  const trimmedHistory = history.slice(-12).filter(m => m.role === 'user' || m.role === 'assistant');
+  const startTime = performance.now();
+
+  if (trimmedHistory.length === 0) {
+    return { message: null, latencyMs: 0, errorMessage: 'Riwayat kosong' };
+  }
+
+  const namePart = opts.customerName?.trim() ? ` Nama pelanggan: ${opts.customerName.trim()}.` : '';
+  const tonePart = opts.systemPrompt?.trim()
+    ? `Ikuti gaya bahasa & persona ini:\n"""${opts.systemPrompt.trim().slice(0, 800)}"""`
+    : 'Gunakan bahasa Indonesia yang ramah, sopan, dan tidak kaku.';
+
+  try {
+    const response = await groq.chat.completions.create({
+      messages: [
+        {
+          role: 'system',
+          content: `Kamu menulis SATU pesan follow-up WhatsApp/Telegram untuk pelanggan yang belum membalas percakapan sebelumnya.${namePart}
+${tonePart}
+
+Aturan:
+- Rujuk konteks percakapan (produk/kebutuhan yang tadi dibahas), jangan generik.
+- Singkat: 1-2 kalimat, boleh 1 emoji. Ramah, tidak memaksa.
+- Ini pesan pertama yang kamu KIRIM DULUAN, bukan balasan. Jangan awali dengan "Baik" / "Tentu".
+- Balas HANYA teks pesan follow-up-nya. Tanpa tanda kutip, tanpa penjelasan.`,
+        },
+        ...trimmedHistory,
+        { role: 'user', content: '[Sistem: pelanggan belum membalas. Tulis pesan follow-up sekarang.]' },
+      ],
+      model: FOLLOWUP_GEN_MODEL,
+      temperature: 0.7,
+      max_tokens: 200,
+    });
+
+    const latencyMs = Math.round(performance.now() - startTime);
+    const raw = response.choices[0]?.message?.content?.trim() || '';
+    // Buang tanda kutip pembungkus bila model menambahkannya
+    const message = raw.replace(/^["']|["']$/g, '').trim() || null;
+
+    return {
+      message,
+      latencyMs,
+      promptTokens: response.usage?.prompt_tokens,
+      completionTokens: response.usage?.completion_tokens,
+      errorMessage: message ? undefined : 'Model mengembalikan teks kosong',
+    };
+  } catch (error) {
+    const latencyMs = Math.round(performance.now() - startTime);
+    Sentry.captureException(error, {
+      tags: { model: FOLLOWUP_GEN_MODEL, provider: 'groq', feature: 'followup_generation' },
+    });
+    return {
+      message: null,
       latencyMs,
       errorMessage: error instanceof Error ? error.message : String(error),
     };

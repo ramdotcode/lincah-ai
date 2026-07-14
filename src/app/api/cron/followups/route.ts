@@ -4,6 +4,7 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { sendTelegramMessage } from '@/lib/telegram';
 import { logEvent } from '@/lib/eventLog';
 import { isFollowupCandidate, renderFollowupTemplate, randomJitterMs } from '@/lib/followup';
+import { generateFollowupMessage } from '@/lib/ai';
 import { sendWhatsAppViaBridge } from '@/lib/whatsapp';
 
 // Batch WA dengan jitter 5–30 detik bisa memakan waktu beberapa menit
@@ -21,7 +22,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const summary = { candidates: 0, sent: 0, failed: 0, cancelled: 0, skipped_rate_limit: 0 };
+  const summary = { candidates: 0, sent: 0, failed: 0, cancelled: 0, skipped_rate_limit: 0, ai_generated: 0, ai_fallback: 0 };
 
   try {
     // 1. Bot dengan follow-up aktif
@@ -36,19 +37,38 @@ export async function GET(req: NextRequest) {
       const cutoff = new Date(Date.now() - delayHours * 60 * 60 * 1000).toISOString();
       const stages = bot.followup_stages?.length ? bot.followup_stages : ['interested', 'negotiating'];
 
-      // 2. Kandidat: active, stage sesuai, idle melewati delay
-      const { data: convs, error: convsError } = await supabaseAdmin
+      // 2. Kandidat: active, idle melewati delay, WA/Telegram (webchat tak bisa di-push).
+      //    Tanpa trigger label → filter stage di query (efisien). Dengan trigger label
+      //    (Fase 8) → ambil lebih luas lalu saring stage-ATAU-label di aplikasi.
+      const labelIds: string[] = bot.followup_label_ids || [];
+      let convQuery = supabaseAdmin
         .from('conversations')
         .select('id, chat_id, platform, status, stage, name, customer_name, history, last_message_at')
         .eq('bot_id', bot.id)
         .eq('status', 'active')
-        .in('stage', stages)
-        // Widget webchat (Fase E3) tidak bisa di-push follow-up — hanya WA/Telegram
         .in('platform', ['whatsapp', 'telegram'])
         .lt('last_message_at', cutoff)
         .limit(100);
+      if (labelIds.length === 0) convQuery = convQuery.in('stage', stages);
+
+      const { data: rawConvs, error: convsError } = await convQuery;
       if (convsError) throw convsError;
-      if (!convs?.length) continue;
+      let convs = rawConvs || [];
+      if (!convs.length) continue;
+
+      // Percakapan yang dipicu label (untuk melewati gate stage saat pengecekan kandidat)
+      const labelTriggered = new Set<string>();
+      if (labelIds.length > 0) {
+        const { data: labelRows } = await supabaseAdmin
+          .from('conversation_labels')
+          .select('conversation_id')
+          .in('conversation_id', convs.map(c => c.id))
+          .in('label_id', labelIds);
+        for (const r of labelRows || []) labelTriggered.add(r.conversation_id);
+        // Simpan hanya yang stage-nya cocok ATAU punya label pemicu
+        convs = convs.filter(c => stages.includes(c.stage) || labelTriggered.has(c.id));
+      }
+      if (!convs.length) continue;
 
       // 3. Hitung follow-up terkirim per conversation (untuk max_count)
       const convIds = convs.map((c) => c.id);
@@ -77,7 +97,7 @@ export async function GET(req: NextRequest) {
       let waSentInBatch = 0;
       for (const conv of convs) {
         const sentCount = sentCounts[conv.id] || 0;
-        if (!isFollowupCandidate(conv, bot, sentCount)) continue;
+        if (!isFollowupCandidate(conv, bot, sentCount, new Date(), { ignoreStage: labelTriggered.has(conv.id) })) continue;
         summary.candidates++;
 
         const isWA = conv.platform === 'whatsapp';
@@ -118,9 +138,27 @@ export async function GET(req: NextRequest) {
           continue;
         }
 
-        const text = renderFollowupTemplate(bot.followup_template, {
-          nama: conv.name || conv.customer_name,
-        });
+        // Susun pesan: mode 'ai' → AI-kontekstual dari riwayat, fallback ke template
+        // bila gagal/kosong; mode 'template' (default) → template statis {nama}.
+        const customerName = conv.name || conv.customer_name;
+        let text: string;
+        let usedAi = false;
+        if (bot.followup_mode === 'ai') {
+          const gen = await generateFollowupMessage(conv.history || [], {
+            systemPrompt: bot.system_prompt,
+            customerName,
+          });
+          if (gen.message) {
+            text = gen.message;
+            usedAi = true;
+            summary.ai_generated++;
+          } else {
+            text = renderFollowupTemplate(bot.followup_template, { nama: customerName });
+            summary.ai_fallback++;
+          }
+        } else {
+          text = renderFollowupTemplate(bot.followup_template, { nama: customerName });
+        }
 
         try {
           if (isWA) {
@@ -154,7 +192,7 @@ export async function GET(req: NextRequest) {
             conversation_id: conv.id,
             channel: isWA ? 'whatsapp' : 'telegram',
             event_type: 'followup_sent',
-            metadata: { attempt_number: sentCount + 1, stage: conv.stage },
+            metadata: { attempt_number: sentCount + 1, stage: conv.stage, mode: usedAi ? 'ai' : 'template' },
           });
           summary.sent++;
         } catch (sendError) {

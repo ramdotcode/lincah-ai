@@ -50,6 +50,14 @@ describe('isFollowupCandidate', () => {
     expect(isFollowupCandidate({ ...conv, stage: 'lost' }, bot, 0, NOW)).toBe(false);
   });
 
+  it('ignoreStage=true (dipicu label) melewati gate stage', () => {
+    // stage 'new' di luar followup_stages, tapi dipicu label → tetap kandidat
+    expect(isFollowupCandidate({ ...conv, stage: 'new' }, bot, 0, NOW, { ignoreStage: true })).toBe(true);
+    // gate lain tetap berlaku walau ignoreStage
+    expect(isFollowupCandidate({ ...conv, stage: 'new', status: 'pending' }, bot, 0, NOW, { ignoreStage: true })).toBe(false);
+    expect(isFollowupCandidate({ ...conv, stage: 'new' }, bot, 2, NOW, { ignoreStage: true })).toBe(false);
+  });
+
   it('bukan kandidat jika sudah mencapai max_count', () => {
     expect(isFollowupCandidate(conv, bot, 2, NOW)).toBe(false);
     expect(isFollowupCandidate(conv, bot, 1, NOW)).toBe(true);

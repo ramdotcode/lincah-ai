@@ -6,10 +6,12 @@ import { sendTelegramMessage } from '@/lib/telegram';
 import { logEvent } from '@/lib/eventLog';
 import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
 import { runStageClassification } from '@/lib/stageClassifier';
+import { runLabelClassification } from '@/lib/labelClassifier';
 import { resolveHandoff, ChildBot } from '@/lib/orchestrator';
 import { fetchBotTools, ToolContext } from '@/lib/tools';
 import { cached, cacheKeys } from '@/lib/cache';
 import { shouldUseRag, retrieveKnowledge } from '@/lib/rag';
+import { ensureContactForConversation } from '@/lib/contacts';
 
 export async function POST(req: NextRequest) {
   try {
@@ -84,6 +86,18 @@ export async function POST(req: NextRequest) {
       conv = newConv;
     }
 
+    // 2.5 CRM: pastikan percakapan tertaut ke kontak akun (hanya saat belum ter-link)
+    if (!conv.contact_id && bot.user_id) {
+      const contactId = await ensureContactForConversation(conv.id, {
+        userId: bot.user_id,
+        platform: 'telegram',
+        externalId: chatId,
+        name: from.first_name + (from.last_name ? ` ${from.last_name}` : ''),
+        username: from.username || null,
+      });
+      if (contactId) conv.contact_id = contactId;
+    }
+
     // 3. Logic based on status
     if (conv.status === 'pending' || (conv.status === 'closed' && bot.stop_ai_after_handoff)) {
       // If pending (human agent taking over) or closed with stop AI flag, don't respond
@@ -134,6 +148,7 @@ export async function POST(req: NextRequest) {
     // 4.5 Stage classification (Fase A4): parallel with the main AI call,
     // awaited only after the reply is sent so it never delays the customer
     const stagePromise = runStageClassification({
+      userId: bot.user_id,
       botId: bot.id,
       conversationId: conv.id,
       channel: 'telegram',
@@ -143,6 +158,18 @@ export async function POST(req: NextRequest) {
       stageUpdatedBy: conv.stage_updated_by,
       stageUpdatedAt: conv.stage_updated_at,
     });
+
+    // 4.55 AI auto-label (CRM Fase 4): paralel, tidak menunda balasan
+    const labelPromise = bot.user_id
+      ? runLabelClassification({
+          userId: bot.user_id,
+          botId: bot.id,
+          conversationId: conv.id,
+          channel: 'telegram',
+          history: conv.history || [],
+          userMessage: messageText,
+        })
+      : Promise.resolve();
 
     // 4.6 Orchestration (parent-child handoff): must finish BEFORE the main AI
     // call because the holding bot determines prompt, knowledge, and model
@@ -191,7 +218,7 @@ export async function POST(req: NextRequest) {
     if (bot.tools_enabled) {
       const tools = await fetchBotTools(bot.id);
       if (tools.length > 0) {
-        toolContext = { botId: bot.id, conversationId: conv.id, customerContact: chatId, tools };
+        toolContext = { botId: bot.id, conversationId: conv.id, customerContact: chatId, contactId: conv.contact_id ?? null, tools };
       }
     }
 
@@ -276,7 +303,7 @@ export async function POST(req: NextRequest) {
     }
 
     // 9. Make sure classification finished before the serverless function freezes
-    await stagePromise;
+    await Promise.all([stagePromise, labelPromise]);
 
     return NextResponse.json({ ok: true });
   } catch (error: any) {

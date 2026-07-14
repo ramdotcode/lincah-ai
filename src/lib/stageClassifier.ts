@@ -2,8 +2,11 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { classifyLeadStage, Message } from '@/lib/ai';
 import { logEvent } from '@/lib/eventLog';
 import { shouldAdvanceStage } from '@/lib/stage';
+import { getStagesForUser } from '@/lib/pipelineStages';
+import { buildStageOrder } from '@/lib/stageConstants';
 
 export interface StageClassificationContext {
+  userId?: string | null; // pemilik akun → stage pipeline custom (Fase 7)
   botId: string;
   conversationId: string;
   channel: 'telegram' | 'whatsapp' | 'webchat';
@@ -18,16 +21,27 @@ export interface StageClassificationContext {
 // Tidak pernah throw — kegagalan tidak boleh mengganggu balasan ke pelanggan.
 export async function runStageClassification(ctx: StageClassificationContext): Promise<void> {
   try {
-    const result = await classifyLeadStage(ctx.history, ctx.userMessage);
+    // Stage pipeline custom akun (fail-safe ke default bila tak ada userId/tabel)
+    const stages = ctx.userId ? await getStagesForUser(ctx.userId) : null;
+    const stageConfig = stages ? buildStageOrder(stages) : undefined;
 
-    const advance = shouldAdvanceStage({
-      currentStage: ctx.currentStage,
-      proposedStage: result.stage,
-      stageUpdatedBy: ctx.stageUpdatedBy,
-      stageUpdatedAt: ctx.stageUpdatedAt,
-      // Pesan yang sedang diproses adalah pesan pelanggan terbaru
-      lastCustomerMessageAt: new Date().toISOString(),
-    });
+    const result = await classifyLeadStage(
+      ctx.history,
+      ctx.userMessage,
+      stages ? stages.map(s => ({ key: s.key, label: s.label })) : undefined
+    );
+
+    const advance = shouldAdvanceStage(
+      {
+        currentStage: ctx.currentStage,
+        proposedStage: result.stage,
+        stageUpdatedBy: ctx.stageUpdatedBy,
+        stageUpdatedAt: ctx.stageUpdatedAt,
+        // Pesan yang sedang diproses adalah pesan pelanggan terbaru
+        lastCustomerMessageAt: new Date().toISOString(),
+      },
+      stageConfig
+    );
 
     if (advance && result.stage) {
       // stage_updated_at diisi otomatis oleh trigger DB

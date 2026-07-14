@@ -11,7 +11,12 @@ import {
   Clock,
   Send,
   ClipboardList,
+  Wallet,
+  TrendingUp,
 } from 'lucide-react';
+import { DEFAULT_STAGES, stageColorClass } from '@/lib/stageConstants';
+
+interface StageDef { key: string; label: string; color: string; }
 
 interface Stats {
   totalConversations: number;
@@ -19,27 +24,21 @@ interface Stats {
   aiResponses: number;
   followupsSent: number;
   totalOrders: number;
+  pipelineValue?: number;
+  wonValue?: number;
   stages: Record<string, number>;
+  stageDefs?: StageDef[];
   daily: { date: string; conversations: number; aiResponses: number }[];
 }
 
-const STAGE_ORDER = ['new', 'interested', 'negotiating', 'won', 'lost'];
+const FALLBACK_STAGE_DEFS: StageDef[] = DEFAULT_STAGES.map(s => ({ key: s.key, label: s.label, color: s.color }));
 
-const STAGE_LABEL: Record<string, string> = {
-  new: 'New',
-  interested: 'Interested',
-  negotiating: 'Negotiating',
-  won: 'Won',
-  lost: 'Lost',
-};
-
-const STAGE_COLOR: Record<string, string> = {
-  new: 'bg-blue-500',
-  interested: 'bg-amber-500',
-  negotiating: 'bg-purple-500',
-  won: 'bg-emerald-500',
-  lost: 'bg-red-400',
-};
+function formatRp(n: number): string {
+  if (n >= 1e9) return `Rp ${(n / 1e9).toFixed(1).replace('.0', '')}M`;
+  if (n >= 1e6) return `Rp ${(n / 1e6).toFixed(1).replace('.0', '')}jt`;
+  if (n >= 1e3) return `Rp ${Math.round(n / 1e3)}rb`;
+  return `Rp ${n}`;
+}
 
 export default function StatsPage() {
   const [stats, setStats] = useState<Stats | null>(null);
@@ -59,8 +58,9 @@ export default function StatsPage() {
     fetchStats();
   }, []);
 
+  const stageDefs = stats?.stageDefs?.length ? stats.stageDefs : FALLBACK_STAGE_DEFS;
   const totalStaged = stats
-    ? STAGE_ORDER.reduce((sum, s) => sum + (stats.stages?.[s] || 0), 0)
+    ? stageDefs.reduce((sum, s) => sum + (stats.stages?.[s.key] || 0), 0)
     : 0;
   const maxDaily = stats
     ? Math.max(1, ...stats.daily.map(d => Math.max(d.conversations, d.aiResponses)))
@@ -108,6 +108,14 @@ export default function StatsPage() {
                 label="Pesanan" value={stats.totalOrders} />
             </div>
 
+            {/* Forecast nilai deal (Fase 9) */}
+            <div className="grid grid-cols-2 gap-4">
+              <StatCard icon={Wallet} color="text-sky-600 bg-sky-500/10"
+                label="Nilai Pipeline (belum closing)" value={formatRp(stats.pipelineValue || 0)} />
+              <StatCard icon={TrendingUp} color="text-emerald-600 bg-emerald-500/10"
+                label="Nilai Menang (won)" value={formatRp(stats.wonValue || 0)} />
+            </div>
+
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
               <div className="bg-card-app border border-app rounded-2xl p-6 shadow-sm">
                 <h2 className="text-sm font-bold text-main mb-1">Aktivitas Harian</h2>
@@ -149,17 +157,17 @@ export default function StatsPage() {
                 <h2 className="text-sm font-bold text-main mb-1">Lead Funnel</h2>
                 <p className="text-[11px] text-muted-app mb-5">Sebaran percakapan per stage pipeline.</p>
                 <div className="space-y-4">
-                  {STAGE_ORDER.map(stage => {
-                    const count = stats.stages?.[stage] || 0;
+                  {stageDefs.map(stage => {
+                    const count = stats.stages?.[stage.key] || 0;
                     const pct = totalStaged ? Math.round((count / totalStaged) * 100) : 0;
                     return (
-                      <div key={stage}>
+                      <div key={stage.key}>
                         <div className="flex justify-between text-[11px] mb-1">
-                          <span className="font-bold text-main">{STAGE_LABEL[stage]}</span>
+                          <span className="font-bold text-main">{stage.label}</span>
                           <span className="text-muted-app">{count} ({pct}%)</span>
                         </div>
                         <div className="h-2.5 bg-muted rounded-full overflow-hidden">
-                          <div className={`h-full rounded-full ${STAGE_COLOR[stage]}`}
+                          <div className={`h-full rounded-full ${stageColorClass(stage.color).dot}`}
                             style={{ width: `${pct}%`, minWidth: count ? 6 : 0 }} />
                         </div>
                       </div>
@@ -176,14 +184,16 @@ export default function StatsPage() {
 }
 
 function StatCard({ icon: Icon, color, label, value }: {
-  icon: any; color: string; label: string; value: number;
+  icon: any; color: string; label: string; value: number | string;
 }) {
   return (
     <div className="bg-card-app border border-app rounded-2xl p-5 shadow-sm">
       <div className={`w-9 h-9 rounded-xl flex items-center justify-center mb-3 ${color}`}>
         <Icon className="w-4.5 h-4.5" />
       </div>
-      <p className="text-2xl font-bold text-main leading-none">{value.toLocaleString('id-ID')}</p>
+      <p className="text-2xl font-bold text-main leading-none">
+        {typeof value === 'number' ? value.toLocaleString('id-ID') : value}
+      </p>
       <p className="text-[11px] text-muted-app mt-1.5">{label}</p>
     </div>
   );

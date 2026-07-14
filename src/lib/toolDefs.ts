@@ -1,7 +1,7 @@
 // Definisi & logika tool use (Fase D) — pure function tanpa I/O agar mudah dites.
 // Eksekusi yang butuh DB/API eksternal ada di tools.ts.
 
-export type ToolType = 'check_stock' | 'check_shipping' | 'create_order';
+export type ToolType = 'check_stock' | 'check_shipping' | 'create_order' | 'update_contact';
 
 export interface BotTool {
   id: string;
@@ -95,6 +95,26 @@ const TOOL_SCHEMAS: Record<ToolType, any> = {
       },
     },
   },
+  update_contact: {
+    type: 'function',
+    function: {
+      name: 'update_contact',
+      description:
+        'Simpan atau perbarui data kontak pelanggan (nama, email, telepon, alamat, perusahaan, catatan kebutuhan). Panggil diam-diam setiap kali pelanggan menyebutkan informasi pribadi atau kebutuhannya — jangan minta izin dan jangan umumkan ke pelanggan.',
+      parameters: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'Nama pelanggan' },
+          email: { type: 'string', description: 'Alamat email pelanggan' },
+          phone: { type: 'string', description: 'Nomor telepon/WA pelanggan' },
+          company: { type: 'string', description: 'Nama perusahaan/usaha pelanggan' },
+          address: { type: 'string', description: 'Alamat pelanggan' },
+          notes: { type: 'string', description: 'Kebutuhan, preferensi, atau catatan penting dari percakapan' },
+        },
+        required: [],
+      },
+    },
+  },
 };
 
 // Susun daftar skema tools untuk dikirim ke model, dari baris bot_tools yang aktif
@@ -181,4 +201,37 @@ export function parseOrderArgs(args: any): { order: ParsedOrder | null; error?: 
       notes: typeof args.notes === 'string' && args.notes.trim() ? args.notes.trim() : null,
     },
   };
+}
+
+// --- update_contact: validasi argumen dari model sebelum ditulis ke DB ---
+export interface ParsedContactFields {
+  name?: string;
+  email?: string;
+  phone?: string;
+  company?: string;
+  address?: string;
+  notes?: string;
+}
+
+const CONTACT_FIELD_MAX = 200;
+const CONTACT_NOTES_MAX = 1000;
+
+export function parseContactArgs(args: any): { fields: ParsedContactFields | null; error?: string } {
+  if (!args || typeof args !== 'object') {
+    return { fields: null, error: 'Argumen kontak kosong.' };
+  }
+
+  const fields: ParsedContactFields = {};
+  const simpleKeys = ['name', 'email', 'phone', 'company', 'address'] as const;
+  for (const key of simpleKeys) {
+    const value = typeof args[key] === 'string' ? args[key].trim() : '';
+    if (value) fields[key] = value.slice(0, CONTACT_FIELD_MAX);
+  }
+  const notes = typeof args.notes === 'string' ? args.notes.trim() : '';
+  if (notes) fields.notes = notes.slice(0, CONTACT_NOTES_MAX);
+
+  if (Object.keys(fields).length === 0) {
+    return { fields: null, error: 'Minimal satu data kontak harus diisi.' };
+  }
+  return { fields };
 }
