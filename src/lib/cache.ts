@@ -36,8 +36,10 @@ export const cacheKeys = {
   botById: (id: string) => `cache:bot:id:${id}`,
   botByPhone: (phone: string) => `cache:bot:phone:${phone}`,
   knowledge: (botId: string) => `cache:knowledge:${botId}`,
-  agents: (botId: string) => `cache:agents:${botId}`,
+  assignments: (botId: string) => `cache:assignments:${botId}`,
   tools: (botId: string) => `cache:tools:${botId}`,
+  // Koneksi WA level akun; key = session key worker (user_id/bot_id) atau phone:<nomor>
+  waConnection: (key: string) => `cache:wa-conn:${key}`,
 };
 
 /**

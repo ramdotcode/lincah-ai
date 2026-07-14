@@ -21,6 +21,7 @@
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.0",
     "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "@xyflow/react": "^12.11.2",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "framer-motion": "^12.38.0",

@@ -707,7 +707,7 @@ export default function KnowledgeSources({ botId }: { botId: string }) {
         <div className="w-5 h-5 bg-blue-500 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0 mt-0.5">i</div>
         <p className="text-xs text-blue-900 dark:text-blue-200 leading-relaxed">
           <span className="font-bold">Knowledge di sini hanya milik bot ini</span> — bot lain di halaman Agents tidak ikut memakainya.
-          Di dalam bot ini, semua sub-agent Orchestration (mis. AI Consumer, AI B2B) membacanya bersama, jadi tidak perlu memilih agent tertentu.
+          Saat bot ini dipakai sebagai child agent di Orchestration, knowledge inilah yang dia bawa; saat chat dipegang child lain, knowledge bot itu yang dipakai.
           Cukup tambahkan sumber lewat tab <span className="font-bold">Text</span> di bawah: klik <span className="font-bold">Add Text</span>, beri nama, tempel isinya, lalu klik <span className="font-bold">Save</span> untuk tiap sumber.
         </p>
       </div>

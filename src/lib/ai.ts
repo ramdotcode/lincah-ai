@@ -362,44 +362,45 @@ Reply ONLY with "YES" or "NO".`,
   };
 }
 
-export interface AgentClassificationResult {
-  agentName: string | null;   // null when the model failed or answered garbage
+export interface ConditionEvaluationResult {
+  answer: string | null;      // null when the model failed
   latencyMs: number;
   promptTokens?: number;
   completionTokens?: number;
   errorMessage?: string;
 }
 
-export interface RoutableAgent {
-  id: string;
+export interface HandoffCandidate {
   name: string;
-  description?: string | null;
+  condition: string;
 }
 
+// Orchestration (parent-child): cek apakah salah satu kondisi handoff child
+// terpenuhi. Default NONE — chat TIDAK pindah kecuali kondisinya jelas terpenuhi.
 // Mirrors the handoff checker: always Groq 8B, temp 0, one-word answer.
-// Never throws — a failed routing must not disturb the reply flow.
-export async function classifyAgent(
-  agents: RoutableAgent[],
+// Never throws — a failed evaluation must not disturb the reply flow.
+export async function evaluateAssignConditions(
+  candidates: HandoffCandidate[],
   history: Message[],
   userMessage: string
-): Promise<AgentClassificationResult> {
+): Promise<ConditionEvaluationResult> {
   const trimmedHistory = history.slice(-10);
   const startTime = performance.now();
 
-  const agentList = agents
-    .map(a => `- ${a.name}: ${a.description || 'no description'}`)
+  const candidateList = candidates
+    .map(c => `- ${c.name}: assign when ${c.condition}`)
     .join('\n');
-  const agentNames = agents.map(a => a.name).join(', ');
+  const candidateNames = candidates.map(c => c.name).join(', ');
 
   try {
     const response = await groq.chat.completions.create({
       messages: [
         {
           role: 'system',
-          content: `You are a chat router for a customer service system. Based on the conversation and the customer's latest message, decide which agent (division) should handle this chat.
-Available agents:
-${agentList}
-Reply ONLY with the exact agent name, one of: ${agentNames}.`,
+          content: `You are a handoff supervisor for a customer service system. The current agent keeps handling the chat UNLESS one of these handoff conditions is clearly met by the customer's latest message:
+${candidateList}
+If a condition is clearly met, reply ONLY with that agent name, one of: ${candidateNames}.
+If no condition is clearly met, or you are unsure, reply ONLY with: NONE.`,
         },
         ...trimmedHistory,
         { role: 'user', content: userMessage },
@@ -410,25 +411,82 @@ Reply ONLY with the exact agent name, one of: ${agentNames}.`,
 
     const latencyMs = Math.round(performance.now() - startTime);
     const raw = response.choices[0]?.message?.content?.trim().toLowerCase() || '';
-    const match = agents.find(a => {
-      const name = a.name.trim().toLowerCase();
-      return raw === name || raw.startsWith(name) || raw.includes(name);
-    });
+
+    if (!raw || raw === 'none' || raw.startsWith('none')) {
+      return {
+        answer: null,
+        latencyMs,
+        promptTokens: response.usage?.prompt_tokens,
+        completionTokens: response.usage?.completion_tokens,
+      };
+    }
+
+    // Cocokkan nama terpanjang dulu agar "Sales Support" tidak termakan "Sales"
+    const match = [...candidates]
+      .sort((a, b) => b.name.length - a.name.length)
+      .find(c => raw.includes(c.name.trim().toLowerCase()));
 
     return {
-      agentName: match ? match.name : null,
+      answer: match ? match.name : null,
       latencyMs,
       promptTokens: response.usage?.prompt_tokens,
       completionTokens: response.usage?.completion_tokens,
-      errorMessage: match ? undefined : `Unrecognized agent output: "${raw}"`,
+      errorMessage: match ? undefined : `Unrecognized handoff output: "${raw}"`,
     };
   } catch (error) {
     const latencyMs = Math.round(performance.now() - startTime);
     Sentry.captureException(error, {
-      tags: { model: HANDOFF_MODEL, provider: 'groq', feature: 'agent_routing' },
+      tags: { model: HANDOFF_MODEL, provider: 'groq', feature: 'agent_handoff' },
     });
     return {
-      agentName: null,
+      answer: null,
+      latencyMs,
+      errorMessage: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+// Orchestration: cek kondisi balik ke parent saat chat dipegang child.
+// Default NO — chat tetap di child kecuali kondisinya jelas terpenuhi.
+export async function evaluateRevertCondition(
+  condition: string,
+  history: Message[],
+  userMessage: string
+): Promise<ConditionEvaluationResult> {
+  const trimmedHistory = history.slice(-10);
+  const startTime = performance.now();
+
+  try {
+    const response = await groq.chat.completions.create({
+      messages: [
+        {
+          role: 'system',
+          content: `You are a handoff supervisor for a customer service system. The chat is currently handled by a specialist agent. It should be returned to the main agent ONLY when this condition is clearly met: ${condition}
+Based on the conversation and the customer's latest message, reply ONLY with YES (return to main agent) or NO (keep the specialist). If unsure, reply NO.`,
+        },
+        ...trimmedHistory,
+        { role: 'user', content: userMessage },
+      ],
+      model: HANDOFF_MODEL,
+      temperature: 0,
+    });
+
+    const latencyMs = Math.round(performance.now() - startTime);
+    const raw = response.choices[0]?.message?.content?.trim().toUpperCase() || '';
+
+    return {
+      answer: raw.startsWith('YES') ? 'YES' : 'NO',
+      latencyMs,
+      promptTokens: response.usage?.prompt_tokens,
+      completionTokens: response.usage?.completion_tokens,
+    };
+  } catch (error) {
+    const latencyMs = Math.round(performance.now() - startTime);
+    Sentry.captureException(error, {
+      tags: { model: HANDOFF_MODEL, provider: 'groq', feature: 'agent_handoff' },
+    });
+    return {
+      answer: null,
       latencyMs,
       errorMessage: error instanceof Error ? error.message : String(error),
     };

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 import { sendTelegramMessage } from '@/lib/telegram';
 import { getAuthUser, canAccessConversation } from '@/lib/apiAuth';
+import { sendWhatsAppViaBridge } from '@/lib/whatsapp';
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,22 +29,19 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Conversation not found' }, { status: 404 });
     }
 
+    const ownerBot = conv.bots as { user_id?: string; telegram_token?: string } | null;
+
     // Send message based on platform
     if (conv.platform === 'whatsapp') {
-      // Send to Baileys bridge (VPS)
-      const bridgeUrl = process.env.WHATSAPP_BRIDGE_URL || 'http://localhost:3001';
-      await fetch(`${bridgeUrl}/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          botId: conv.bot_id, // bridge butuh botId untuk lookup sesi WA yang benar
-          to: conv.chat_id,
-          text: text
-        })
-      });
+      // Key sesi baru = user_id pemilik akun; conv.bot_id lama untuk sesi belum migrasi
+      await sendWhatsAppViaBridge(
+        [ownerBot?.user_id, conv.bot_id],
+        conv.chat_id,
+        text
+      );
     } else {
       // Send to Telegram
-      const botToken = (conv as any).bots.telegram_token || process.env.TELEGRAM_BOT_TOKEN;
+      const botToken = ownerBot?.telegram_token || process.env.TELEGRAM_BOT_TOKEN!;
       await sendTelegramMessage(botToken, conv.chat_id, text);
     }
 
@@ -59,7 +57,8 @@ export async function POST(req: NextRequest) {
       .eq('id', conversationId);
 
     return NextResponse.json({ ok: true });
-  } catch (error: any) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return NextResponse.json({ error: message }, { status: 500 });
   }
 }

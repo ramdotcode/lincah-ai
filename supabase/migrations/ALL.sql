@@ -31,6 +31,9 @@ CREATE TABLE public.bots (
   multi_agent_enabled boolean DEFAULT false,
   tools_enabled boolean DEFAULT false,
   widget_enabled boolean DEFAULT false,
+  orchestration_enabled boolean DEFAULT false,
+  revert_to_parent_condition text,
+  orchestration_parent_position jsonb,
   CONSTRAINT bots_pkey PRIMARY KEY (id),
   CONSTRAINT bots_user_id_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id)
 );
@@ -53,9 +56,25 @@ CREATE TABLE public.conversations (
   stage_updated_at timestamp with time zone DEFAULT now(),
   stage_updated_by text CHECK (stage_updated_by = ANY (ARRAY['ai'::text, 'manual'::text])),
   active_agent_id uuid,
+  active_child_bot_id uuid,
   CONSTRAINT conversations_pkey PRIMARY KEY (id),
   CONSTRAINT conversations_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id),
-  CONSTRAINT conversations_active_agent_id_fkey FOREIGN KEY (active_agent_id) REFERENCES public.agents(id)
+  CONSTRAINT conversations_active_agent_id_fkey FOREIGN KEY (active_agent_id) REFERENCES public.agents(id),
+  CONSTRAINT conversations_active_child_bot_id_fkey FOREIGN KEY (active_child_bot_id) REFERENCES public.bots(id)
+);
+CREATE TABLE public.agent_assignments (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  parent_bot_id uuid NOT NULL,
+  child_bot_id uuid NOT NULL,
+  assign_condition text NOT NULL,
+  position jsonb,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT agent_assignments_pkey PRIMARY KEY (id),
+  CONSTRAINT agent_assignments_parent_fkey FOREIGN KEY (parent_bot_id) REFERENCES public.bots(id),
+  CONSTRAINT agent_assignments_child_fkey FOREIGN KEY (child_bot_id) REFERENCES public.bots(id),
+  CONSTRAINT agent_assignments_no_self CHECK (parent_bot_id <> child_bot_id),
+  CONSTRAINT agent_assignments_unique_child UNIQUE (parent_bot_id, child_bot_id)
 );
 CREATE TABLE public.agents (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
@@ -161,6 +180,21 @@ CREATE TABLE public.knowledge_chunks (
   CONSTRAINT knowledge_chunks_source_fkey FOREIGN KEY (knowledge_source_id) REFERENCES public.knowledge_sources(id),
   CONSTRAINT knowledge_chunks_bot_id_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id),
   CONSTRAINT knowledge_chunks_agent_id_fkey FOREIGN KEY (agent_id) REFERENCES public.agents(id)
+);
+CREATE TABLE public.whatsapp_connections (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  user_id uuid NOT NULL UNIQUE,
+  bot_id uuid NOT NULL,
+  enabled boolean NOT NULL DEFAULT true,
+  phone_number text,
+  bot_type text NOT NULL DEFAULT 'baileys'::text,
+  phone_id text,
+  access_token text,
+  created_at timestamp with time zone NOT NULL DEFAULT now(),
+  updated_at timestamp with time zone NOT NULL DEFAULT now(),
+  CONSTRAINT whatsapp_connections_pkey PRIMARY KEY (id),
+  CONSTRAINT whatsapp_connections_user_fkey FOREIGN KEY (user_id) REFERENCES auth.users(id),
+  CONSTRAINT whatsapp_connections_bot_fkey FOREIGN KEY (bot_id) REFERENCES public.bots(id)
 );
 CREATE TABLE public.profiles (
   id uuid NOT NULL,

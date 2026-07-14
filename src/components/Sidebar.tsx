@@ -20,7 +20,7 @@ import { supabase } from '@/lib/supabase-client';
 const sidebarModules: Record<string, any[]> = {
   agents: [
     { icon: Bot, href: '/agents', label: 'AI Agents' },
-    { icon: LinkIcon, href: '/settings#integrations', label: 'Integrations' },
+    { icon: LinkIcon, href: '/platforms', label: 'Connected Platforms' },
   ],
   crm: [
     { icon: MessageSquare, href: '/monitor', label: 'Live Monitoring' },
@@ -62,7 +62,7 @@ export default function Sidebar() {
   // Determine active module
   const activeModule = pathname.startsWith('/admin')
     ? 'admin'
-    : pathname.startsWith('/agents') || pathname.startsWith('/dashboard')
+    : pathname.startsWith('/agents') || pathname.startsWith('/dashboard') || pathname.startsWith('/platforms')
     ? 'agents'
     : pathname.startsWith('/monitor') || pathname.startsWith('/leads') || pathname.startsWith('/orders') || pathname.startsWith('/stats')
     ? 'crm'

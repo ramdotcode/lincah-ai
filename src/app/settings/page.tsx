@@ -22,10 +22,9 @@ import {
   Kanban,
   Cpu
 } from 'lucide-react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import KnowledgeSources from '@/components/KnowledgeSources';
-import WhatsAppStatus from '@/components/WhatsAppStatus';
-import AgentOrchestration from '@/components/AgentOrchestration';
+import OrchestrationCanvas from '@/components/OrchestrationCanvas';
 import BotTools from '@/components/BotTools';
 
 function SettingsContent() {
@@ -178,7 +177,6 @@ function SettingsContent() {
     { name: 'Knowledge Sources', icon: BookOpen },
     { name: 'Integrations', icon: Share2 },
     { name: 'Followups', icon: Clock },
-    { name: 'Tools', icon: Zap },
     { name: 'Evaluation', icon: MessageSquare },
     { name: 'Orchestration', icon: Sparkles },
   ];
@@ -474,176 +472,24 @@ function SettingsContent() {
           </div>
         ) : activeTab === 'Integrations' ? (
           <div className="flex-1 overflow-y-auto p-12 bg-[#fcfcfc] dark:bg-zinc-950/50">
-            <div className="max-w-2xl mx-auto space-y-12">
-              <div className="flex items-center gap-3 mb-8">
-                 <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center">
-                    <Share2 className="w-6 h-6 text-emerald-600" />
-                 </div>
-                 <div>
-                    <h2 className="text-xl font-bold text-main">Integrations</h2>
-                    <p className="text-xs text-muted-app">Connect your AI agent to external platforms.</p>
-                 </div>
-              </div>
-
-              {/* WhatsApp Section */}
-              <div className="bg-card-app border border-app rounded-[2.5rem] p-8 space-y-8 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-[#25D366]/10 rounded-full flex items-center justify-center">
-                      <svg viewBox="0 0 24 24" className="w-6 h-6 fill-[#25D366]"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.414 0 .004 5.412 0 12.048c0 2.123.554 4.197 1.608 6.037L0 24l6.117-1.605a11.803 11.803 0 005.925 1.586h.005c6.637 0 12.05-5.414 12.05-12.051 0-3.213-1.25-6.232-3.522-8.504z"/></svg>
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-main">WhatsApp</h4>
-                      <p className="text-[11px] text-muted-app">Connect this bot to WhatsApp.</p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox" 
-                      className="sr-only peer" 
-                      checked={bot.whatsapp_enabled || false} 
-                      onChange={(e) => setBot({...bot, whatsapp_enabled: e.target.checked})} 
-                    />
-                    <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
-                  </label>
+            <div className="max-w-2xl mx-auto space-y-8">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center">
+                  <Share2 className="w-6 h-6 text-emerald-600" />
                 </div>
-
-                <AnimatePresence>
-                  {bot.whatsapp_enabled && (
-                    <motion.div 
-                      initial={{ height: 0, opacity: 0 }}
-                      animate={{ height: 'auto', opacity: 1 }}
-                      exit={{ height: 0, opacity: 0 }}
-                      className="overflow-hidden space-y-6 pt-4 border-t border-app"
-                    >
-                      <div className="space-y-6">
-                        <div className="space-y-4">
-                          <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest px-1">Integration Type</label>
-                          <div className="grid grid-cols-3 gap-4">
-                            <button 
-                              onClick={() => setBot({...bot, whatsapp_bot_type: 'baileys'})}
-                              className={`p-4 rounded-2xl border-2 text-left transition-all ${
-                                (bot.whatsapp_bot_type || 'baileys') === 'baileys' 
-                                ? 'border-emerald-500 bg-emerald-50/50' 
-                                : 'border-app bg-white dark:bg-zinc-900'
-                              }`}>
-                              <p className="text-xs font-bold text-main">Local Baileys</p>
-                              <p className="text-[9px] text-muted-app mt-1">Connect via QR Scan (Local Terminal)</p>
-                            </button>
-                            <button 
-                              onClick={() => setBot({...bot, whatsapp_bot_type: 'official'})}
-                              className={`p-4 rounded-2xl border-2 text-left transition-all ${
-                                bot.whatsapp_bot_type === 'official' 
-                                ? 'border-blue-500 bg-blue-50/50' 
-                                : 'border-app bg-white dark:bg-zinc-900'
-                              }`}>
-                              <p className="text-xs font-bold text-main">Meta Official</p>
-                              <p className="text-[9px] text-muted-app mt-1">Cloud API (Ready for Scale)</p>
-                            </button>
-                          </div>
-                        </div>
-
-                        {/* Live Status for Baileys */}
-                        {(bot.whatsapp_bot_type || 'baileys') === 'baileys' && bot.id && (
-                          <div className="pt-4 animate-in fade-in slide-in-from-top-4 duration-500">
-                            <WhatsAppStatus botId={bot.id} />
-                          </div>
-                        )}
-
-                        <div className="space-y-4">
-                          <div className="flex flex-col gap-1.5">
-                            <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest px-1">WhatsApp Phone Number</label>
-                            <input 
-                              type="text" 
-                              placeholder="e.g. 628123456789"
-                              value={bot.whatsapp_phone_number || ''}
-                              onChange={(e) => setBot({...bot, whatsapp_phone_number: e.target.value})}
-                              className="w-full bg-white dark:bg-zinc-900 border border-app rounded-xl px-4 py-2.5 text-xs text-main outline-none focus:border-emerald-500 shadow-sm"
-                            />
-                            <p className="text-[10px] text-muted-app px-1 italic">Use international format without &apos;+&apos;.</p>
-                          </div>
-
-                          {bot.whatsapp_bot_type === 'official' && (
-                            <div className="space-y-4 pt-4 border-t border-app">
-                              <div className="flex flex-col gap-1.5">
-                                <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest px-1">Phone Number ID</label>
-                                <input 
-                                  type="text" 
-                                  value={bot.whatsapp_phone_id || ''}
-                                  onChange={(e) => setBot({...bot, whatsapp_phone_id: e.target.value})}
-                                  className="w-full bg-white dark:bg-zinc-900 border border-app rounded-xl px-4 py-2.5 text-xs text-main outline-none focus:border-blue-500 shadow-sm"
-                                />
-                              </div>
-                              <div className="flex flex-col gap-1.5">
-                                <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest px-1">Access Token</label>
-                                <input 
-                                  type="password" 
-                                  value={bot.whatsapp_access_token || ''}
-                                  onChange={(e) => setBot({...bot, whatsapp_access_token: e.target.value})}
-                                  className="w-full bg-white dark:bg-zinc-900 border border-app rounded-xl px-4 py-2.5 text-xs text-main outline-none focus:border-blue-500 shadow-sm"
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
-
-              {/* Live Chat Widget Section (Fase E3) */}
-              <div className="bg-card-app border border-app rounded-[2.5rem] p-8 space-y-6 shadow-sm">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center">
-                      <MessageSquare className="w-6 h-6 text-blue-600" />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-main">Live Chat Widget</h4>
-                      <p className="text-[11px] text-muted-app">Chat mengambang yang bisa dipasang di website mana pun.</p>
-                    </div>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input type="checkbox"
-                      className="sr-only peer"
-                      checked={bot.widget_enabled || false}
-                      onChange={(e) => setBot({...bot, widget_enabled: e.target.checked})}
-                    />
-                    <div className="w-11 h-6 bg-muted peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-500"></div>
-                  </label>
+                <div>
+                  <h2 className="text-xl font-bold text-main">Connected Apps</h2>
+                  <p className="text-xs text-muted-app">
+                    Sambungkan chatbot dengan aplikasi untuk memperluas kemampuannya.
+                    Koneksi channel (WhatsApp, widget) pindah ke halaman <span className="font-bold">Connected Platforms</span> di sidebar.
+                  </p>
                 </div>
-
-                {bot.widget_enabled && (
-                  <div className="space-y-3 pt-4 border-t border-app">
-                    <p className="text-[11px] text-muted-app">
-                      Simpan dulu dengan <span className="font-bold">Save Changes</span>, lalu tempel kode ini sebelum <span className="font-mono">&lt;/body&gt;</span> di website kamu:
-                    </p>
-                    <pre className="bg-zinc-900 text-emerald-400 text-[11px] rounded-xl p-4 overflow-x-auto font-mono leading-relaxed">
-{`<script src="${typeof window !== 'undefined' ? window.location.origin : ''}/widget.js"
-  data-bot-id="${bot.id}" defer></script>`}
-                    </pre>
-                    <p className="text-[10px] text-muted-app">
-                      Percakapan dari widget muncul di Live Monitoring dengan platform <span className="font-bold">webchat</span>. Multi-agent, tools, dan handoff berlaku sama seperti channel lain.
-                    </p>
-                  </div>
-                )}
               </div>
-
-              {/* Telegram Section (Existing but empty placeholder) */}
-              <div className="bg-card-app border border-app rounded-[2.5rem] p-8 opacity-50">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-4">
-                      <div className="w-12 h-12 bg-blue-500/10 rounded-full flex items-center justify-center">
-                        <Share2 className="w-6 h-6 text-blue-600" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-bold text-main">Telegram</h4>
-                        <p className="text-[11px] text-muted-app">Standard Telegram Bot token.</p>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-bold text-muted-app">COMING SOON</span>
-                  </div>
-              </div>
+              <BotTools
+                botId={bot.id}
+                toolsEnabled={!!bot.tools_enabled}
+                onToggleTools={(enabled) => setBot({ ...bot, tools_enabled: enabled })}
+              />
             </div>
           </div>
         ) : activeTab === 'Followups' ? (
@@ -769,21 +615,9 @@ function SettingsContent() {
               <div className="h-20" />
             </div>
           </div>
-        ) : activeTab === 'Tools' ? (
-          <div className="flex-1 overflow-y-auto p-12 bg-[#fcfcfc] dark:bg-zinc-950/50">
-            <BotTools
-              botId={bot.id}
-              toolsEnabled={!!bot.tools_enabled}
-              onToggleTools={(enabled) => setBot({ ...bot, tools_enabled: enabled })}
-            />
-          </div>
         ) : activeTab === 'Orchestration' ? (
-          <div className="flex-1 overflow-y-auto p-12 bg-[#fcfcfc] dark:bg-zinc-950/50">
-            <AgentOrchestration
-              botId={bot.id}
-              multiAgentEnabled={!!bot.multi_agent_enabled}
-              onToggleMultiAgent={(enabled) => setBot({ ...bot, multi_agent_enabled: enabled })}
-            />
+          <div className="flex-1 overflow-hidden p-8 bg-[#fcfcfc] dark:bg-zinc-950/50">
+            <OrchestrationCanvas botId={bot.id} />
           </div>
         ) : (
           <div className="flex-1 flex items-center justify-center bg-[#fcfcfc] dark:bg-zinc-950/50">

@@ -6,7 +6,7 @@ import { sendTelegramMessage } from '@/lib/telegram';
 import { logEvent } from '@/lib/eventLog';
 import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
 import { runStageClassification } from '@/lib/stageClassifier';
-import { routeAgent, RoutedAgent } from '@/lib/agentRouter';
+import { resolveHandoff, ChildBot } from '@/lib/orchestrator';
 import { fetchBotTools, ToolContext } from '@/lib/tools';
 import { cached, cacheKeys } from '@/lib/cache';
 import { shouldUseRag, retrieveKnowledge } from '@/lib/rag';
@@ -124,7 +124,7 @@ export async function POST(req: NextRequest) {
     const sources = await cached(cacheKeys.knowledge(bot.id), async () => {
       const { data } = await supabaseAdmin
         .from('knowledge_sources')
-        .select('type, name, content, agent_id')
+        .select('type, name, content')
         .eq('bot_id', bot.id);
       return data || [];
     });
@@ -144,33 +144,45 @@ export async function POST(req: NextRequest) {
       stageUpdatedAt: conv.stage_updated_at,
     });
 
-    // 4.6 Multi-agent routing (Fase C): must finish BEFORE the main AI call
-    // because the chosen agent determines the system prompt & knowledge scope
+    // 4.6 Orchestration (parent-child handoff): must finish BEFORE the main AI
+    // call because the holding bot determines prompt, knowledge, and model
     let systemPrompt = bot.system_prompt;
-    let routedAgent: RoutedAgent | null = null;
-    if (bot.multi_agent_enabled) {
-      routedAgent = await routeAgent({
+    let aiModel = bot.ai_model || 'groq';
+    let answeringBotId: string = bot.id;
+    let activeChild: ChildBot | null = null;
+    if (bot.orchestration_enabled) {
+      const handoff = await resolveHandoff({
         botId: bot.id,
         conversationId: conv.id,
         channel: 'telegram',
         history: conv.history || [],
         userMessage: messageText,
-        activeAgentId: conv.active_agent_id || null,
+        activeChildBotId: conv.active_child_bot_id || null,
+        revertCondition: bot.revert_to_parent_condition || null,
       });
 
-      if (routedAgent) {
-        if (routedAgent.system_prompt) systemPrompt = routedAgent.system_prompt;
-        // Shared knowledge (agent_id null) + knowledge scoped to the chosen agent
-        knowledgeSources = knowledgeSources.filter(
-          s => !s.agent_id || s.agent_id === routedAgent!.id
-        );
+      const child = handoff.child;
+      if (child) {
+        activeChild = child;
+        answeringBotId = child.id;
+        if (child.system_prompt) systemPrompt = child.system_prompt;
+        if (child.ai_model) aiModel = child.ai_model;
+        // Chat dipegang child → pakai knowledge milik bot child
+        const childSources = await cached(cacheKeys.knowledge(child.id), async () => {
+          const { data } = await supabaseAdmin
+            .from('knowledge_sources')
+            .select('type, name, content')
+            .eq('bot_id', child.id);
+          return data || [];
+        });
+        knowledgeSources = childSources?.filter((s: { content: string | null }) => s.content) || [];
       }
     }
 
     // 4.65 RAG (Fase E2): knowledge gemuk → ambil hanya chunk paling relevan.
     // Fail-open: retrieval gagal/kosong → tetap pakai knowledge penuh.
     if (shouldUseRag(knowledgeSources)) {
-      const relevant = await retrieveKnowledge(bot.id, routedAgent?.id || null, messageText);
+      const relevant = await retrieveKnowledge(answeringBotId, null, messageText);
       if (relevant?.length) knowledgeSources = relevant;
     }
 
@@ -190,7 +202,7 @@ export async function POST(req: NextRequest) {
       messageText,
       bot.transfer_condition,
       knowledgeSources,
-      bot.ai_model || "groq",
+      aiModel,
       toolContext
     );
 
@@ -206,11 +218,11 @@ export async function POST(req: NextRequest) {
       completion_tokens: aiResult.completionTokens,
       handoff_result: aiResult.handoffTriggered,
       metadata: {
-        ai_model: bot.ai_model || 'groq',
+        ai_model: aiModel,
         model_used: aiResult.modelUsed,
         used_fallback: aiResult.usedFallback || false,
-        agent_id: routedAgent?.id || null,
-        agent_name: routedAgent?.name || null,
+        child_bot_id: activeChild?.id || null,
+        child_bot_name: activeChild?.name || null,
         tool_calls: aiResult.toolCallsMade || 0,
       },
     });
@@ -238,8 +250,8 @@ export async function POST(req: NextRequest) {
       last_message_at: new Date().toISOString(),
     };
 
-    if (routedAgent && routedAgent.id !== conv.active_agent_id) {
-      updateData.active_agent_id = routedAgent.id;
+    if (bot.orchestration_enabled && (activeChild?.id || null) !== (conv.active_child_bot_id || null)) {
+      updateData.active_child_bot_id = activeChild?.id || null;
     }
 
     if (aiResult.handoffTriggered) {

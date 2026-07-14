@@ -4,24 +4,12 @@ import { supabaseAdmin } from '@/lib/supabase';
 import { sendTelegramMessage } from '@/lib/telegram';
 import { logEvent } from '@/lib/eventLog';
 import { isFollowupCandidate, renderFollowupTemplate, randomJitterMs } from '@/lib/followup';
+import { sendWhatsAppViaBridge } from '@/lib/whatsapp';
 
 // Batch WA dengan jitter 5–30 detik bisa memakan waktu beberapa menit
 export const maxDuration = 300;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-async function sendWhatsAppViaBridge(botId: string, to: string, text: string) {
-  const bridgeUrl = process.env.WHATSAPP_BRIDGE_URL || 'http://localhost:3001';
-  const res = await fetch(`${bridgeUrl}/send`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ botId, to, text }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => '');
-    throw new Error(`Bridge send failed: ${res.status} ${body}`);
-  }
-}
 
 // Dipanggil Vercel Cron tiap 20 menit (lihat vercel.json).
 // Scheduler dinamis: kandidat dihitung ulang tiap run dari last_message_at,
@@ -136,7 +124,8 @@ export async function GET(req: NextRequest) {
 
         try {
           if (isWA) {
-            await sendWhatsAppViaBridge(bot.id, conv.chat_id, text);
+            // Key sesi baru = user_id pemilik akun; bot.id lama untuk sesi belum migrasi
+            await sendWhatsAppViaBridge([bot.user_id, bot.id], conv.chat_id, text);
             waBudget--;
             waSentInBatch++;
           } else {

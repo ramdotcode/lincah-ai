@@ -5,10 +5,11 @@ import { processMessage } from '@/lib/ai';
 import { logEvent } from '@/lib/eventLog';
 import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
 import { runStageClassification } from '@/lib/stageClassifier';
-import { routeAgent, RoutedAgent } from '@/lib/agentRouter';
+import { resolveHandoff, ChildBot } from '@/lib/orchestrator';
 import { fetchBotTools, ToolContext } from '@/lib/tools';
 import { cached, cacheKeys } from '@/lib/cache';
 import { shouldUseRag, retrieveKnowledge } from '@/lib/rag';
+import { findConnectionBySessionKey, findConnectionByPhone } from '@/lib/whatsapp';
 
 export async function POST(req: NextRequest) {
   try {
@@ -37,9 +38,27 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ ok: true });
     }
 
-    // 1. Find the bot associated with this message (cached ~60s, Fase E1)
+    // 1. Resolve koneksi WA level akun (key sesi worker = user_id, atau bot_id
+    //    lama untuk sesi yang belum di-rename) → bot penjawab. Kalau tidak ada
+    //    koneksi, jatuh ke lookup legacy via kolom bots.whatsapp_*.
+    const connection = bot_id
+      ? await findConnectionBySessionKey(bot_id)
+      : bot_phone
+        ? await findConnectionByPhone(bot_phone)
+        : null;
+
+    if (connection && !connection.enabled) {
+      // Integrasi WA akun ini sedang dimatikan — jangan balas apa pun
+      return NextResponse.json({ ok: true });
+    }
+
     let bot;
-    if (bot_id) {
+    if (connection) {
+      bot = await cached(cacheKeys.botById(connection.bot_id), async () => {
+        const { data } = await supabaseAdmin.from('bots').select('*').eq('id', connection.bot_id).single();
+        return data;
+      });
+    } else if (bot_id) {
       bot = await cached(cacheKeys.botById(bot_id), async () => {
         const { data } = await supabaseAdmin.from('bots').select('*').eq('id', bot_id).single();
         return data;
@@ -131,7 +150,7 @@ export async function POST(req: NextRequest) {
     const sources = await cached(cacheKeys.knowledge(bot.id), async () => {
       const { data } = await supabaseAdmin
         .from('knowledge_sources')
-        .select('type, name, content, agent_id')
+        .select('type, name, content')
         .eq('bot_id', bot.id);
       return data || [];
     });
@@ -151,33 +170,45 @@ export async function POST(req: NextRequest) {
       stageUpdatedAt: conv.stage_updated_at,
     });
 
-    // 4.6 Multi-agent routing (Fase C): must finish BEFORE the main AI call
-    // because the chosen agent determines the system prompt & knowledge scope
+    // 4.6 Orchestration (parent-child handoff): must finish BEFORE the main AI
+    // call because the holding bot determines prompt, knowledge, and model
     let systemPrompt = bot.system_prompt;
-    let routedAgent: RoutedAgent | null = null;
-    if (bot.multi_agent_enabled) {
-      routedAgent = await routeAgent({
+    let aiModel = bot.ai_model || 'groq';
+    let answeringBotId: string = bot.id;
+    let activeChild: ChildBot | null = null;
+    if (bot.orchestration_enabled) {
+      const handoff = await resolveHandoff({
         botId: bot.id,
         conversationId: conv.id,
         channel: 'whatsapp',
         history: conv.history || [],
         userMessage: text,
-        activeAgentId: conv.active_agent_id || null,
+        activeChildBotId: conv.active_child_bot_id || null,
+        revertCondition: bot.revert_to_parent_condition || null,
       });
 
-      if (routedAgent) {
-        if (routedAgent.system_prompt) systemPrompt = routedAgent.system_prompt;
-        // Shared knowledge (agent_id null) + knowledge scoped to the chosen agent
-        knowledgeSources = knowledgeSources.filter(
-          s => !s.agent_id || s.agent_id === routedAgent!.id
-        );
+      const child = handoff.child;
+      if (child) {
+        activeChild = child;
+        answeringBotId = child.id;
+        if (child.system_prompt) systemPrompt = child.system_prompt;
+        if (child.ai_model) aiModel = child.ai_model;
+        // Chat dipegang child → pakai knowledge milik bot child
+        const childSources = await cached(cacheKeys.knowledge(child.id), async () => {
+          const { data } = await supabaseAdmin
+            .from('knowledge_sources')
+            .select('type, name, content')
+            .eq('bot_id', child.id);
+          return data || [];
+        });
+        knowledgeSources = childSources?.filter((s: { content: string | null }) => s.content) || [];
       }
     }
 
     // 4.65 RAG (Fase E2): knowledge gemuk → ambil hanya chunk paling relevan.
     // Fail-open: retrieval gagal/kosong → tetap pakai knowledge penuh.
     if (shouldUseRag(knowledgeSources)) {
-      const relevant = await retrieveKnowledge(bot.id, routedAgent?.id || null, text);
+      const relevant = await retrieveKnowledge(answeringBotId, null, text);
       if (relevant?.length) knowledgeSources = relevant;
     }
 
@@ -197,7 +228,7 @@ export async function POST(req: NextRequest) {
       text,
       bot.transfer_condition,
       knowledgeSources,
-      bot.ai_model || "groq",
+      aiModel,
       toolContext
     );
 
@@ -213,11 +244,11 @@ export async function POST(req: NextRequest) {
       completion_tokens: aiResult.completionTokens,
       handoff_result: aiResult.handoffTriggered,
       metadata: {
-        ai_model: bot.ai_model || 'groq',
+        ai_model: aiModel,
         model_used: aiResult.modelUsed,
         used_fallback: aiResult.usedFallback || false,
-        agent_id: routedAgent?.id || null,
-        agent_name: routedAgent?.name || null,
+        child_bot_id: activeChild?.id || null,
+        child_bot_name: activeChild?.name || null,
         tool_calls: aiResult.toolCallsMade || 0,
       },
     });
@@ -245,8 +276,8 @@ export async function POST(req: NextRequest) {
       last_message_at: new Date().toISOString(),
     };
 
-    if (routedAgent && routedAgent.id !== conv.active_agent_id) {
-      updateData.active_agent_id = routedAgent.id;
+    if (bot.orchestration_enabled && (activeChild?.id || null) !== (conv.active_child_bot_id || null)) {
+      updateData.active_child_bot_id = activeChild?.id || null;
     }
 
     if (aiResult.handoffTriggered) {
