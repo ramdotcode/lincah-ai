@@ -62,7 +62,7 @@ export default function Sidebar() {
   // Determine active module
   const activeModule = pathname.startsWith('/admin')
     ? 'admin'
-    : pathname.startsWith('/agents')
+    : pathname.startsWith('/agents') || pathname.startsWith('/dashboard')
     ? 'agents'
     : pathname.startsWith('/monitor') || pathname.startsWith('/leads') || pathname.startsWith('/orders') || pathname.startsWith('/stats')
     ? 'crm'

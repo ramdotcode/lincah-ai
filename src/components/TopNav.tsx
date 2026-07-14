@@ -71,7 +71,7 @@ export default function TopNav() {
 
         <nav className="flex items-center gap-1">
           {modules.map((mod) => {
-            const isActive = pathname.startsWith(mod.root) || (mod.name === 'CRM' && pathname === '/leads');
+            const isActive = pathname.startsWith(mod.root) || (mod.name === 'CRM' && pathname === '/leads') || (mod.name === 'Agents' && pathname.startsWith('/dashboard'));
             return (
               <Link
                 key={mod.name}
