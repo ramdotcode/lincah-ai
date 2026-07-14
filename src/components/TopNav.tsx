@@ -22,9 +22,9 @@ import { supabase } from '@/lib/supabase-client';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const modules = [
-  { name: 'Agents', icon: Zap, href: '/agents', root: '/agents' },
-  { name: 'CRM', icon: Users, href: '/monitor', root: '/monitor' },
-  { name: 'Settings', icon: Settings, href: '/settings', root: '/settings' },
+  { name: 'Agents', icon: Zap, href: '/agents', roots: ['/agents', '/dashboard', '/platforms'] },
+  { name: 'CRM', icon: Users, href: '/monitor', roots: ['/monitor', '/leads', '/contacts', '/tickets', '/orders', '/stats'] },
+  { name: 'Settings', icon: Settings, href: '/settings', roots: ['/settings'] },
 ];
 
 export default function TopNav() {
@@ -71,7 +71,7 @@ export default function TopNav() {
 
         <nav className="flex items-center gap-1">
           {modules.map((mod) => {
-            const isActive = pathname.startsWith(mod.root) || (mod.name === 'CRM' && pathname === '/leads') || (mod.name === 'Agents' && pathname.startsWith('/dashboard'));
+            const isActive = mod.roots.some((root) => pathname.startsWith(root));
             return (
               <Link
                 key={mod.name}

@@ -9,7 +9,9 @@ import {
   Settings,
   HeartPulse,
   Shield,
-  ClipboardList
+  ClipboardList,
+  Users,
+  Ticket
 } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -25,6 +27,8 @@ const sidebarModules: Record<string, any[]> = {
   crm: [
     { icon: MessageSquare, href: '/monitor', label: 'Live Monitoring' },
     { icon: BookOpen, href: '/leads', label: 'Lead Database' },
+    { icon: Users, href: '/contacts', label: 'Contacts' },
+    { icon: Ticket, href: '/tickets', label: 'Tickets' },
     { icon: ClipboardList, href: '/orders', label: 'Orders' },
     { icon: BarChart3, href: '/stats', label: 'Analytics' },
   ],
@@ -64,7 +68,7 @@ export default function Sidebar() {
     ? 'admin'
     : pathname.startsWith('/agents') || pathname.startsWith('/dashboard') || pathname.startsWith('/platforms')
     ? 'agents'
-    : pathname.startsWith('/monitor') || pathname.startsWith('/leads') || pathname.startsWith('/orders') || pathname.startsWith('/stats')
+    : pathname.startsWith('/monitor') || pathname.startsWith('/leads') || pathname.startsWith('/contacts') || pathname.startsWith('/tickets') || pathname.startsWith('/orders') || pathname.startsWith('/stats')
     ? 'crm'
     : 'settings';
 
