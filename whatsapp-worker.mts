@@ -239,9 +239,19 @@ async function startSession(botId: string) {
             }
 
             const data: any = await response.json();
-            if (data.reply) {
+            // Multi-bubble: webhook baru mengirim `replies` (array); fallback `reply` (string)
+            const replies: string[] = Array.isArray(data.replies) && data.replies.length
+                ? data.replies
+                : data.reply ? [data.reply] : [];
+            if (replies.length) {
                 try {
-                    await sock.sendMessage(remoteJid, { text: data.reply });
+                    for (let i = 0; i < replies.length; i++) {
+                        if (i > 0) {
+                            // Jeda acak 1.2–2.5 dtk antar bubble — natural + aman dari deteksi spam
+                            await new Promise((r) => setTimeout(r, 1200 + Math.random() * 1300));
+                        }
+                        await sock.sendMessage(remoteJid, { text: replies[i] });
+                    }
                 } catch (sendError) {
                     Sentry.captureException(sendError, {
                       tags: {

@@ -80,8 +80,14 @@ export default function WidgetPage({ params }: { params: Promise<{ botId: string
 
       if (res.ok) {
         const data = await res.json();
-        if (data.reply) {
-          setMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
+        // Multi-bubble: render `replies` berurutan dengan jeda singkat; fallback `reply`
+        const replies: string[] = Array.isArray(data.replies) && data.replies.length
+          ? data.replies
+          : data.reply ? [data.reply] : [];
+        for (let i = 0; i < replies.length; i++) {
+          if (i > 0) await new Promise(r => setTimeout(r, 700));
+          const content = replies[i];
+          setMessages(prev => [...prev, { role: 'assistant', content }]);
         }
         if (data.handoff || data.status === 'pending') {
           setWaitingHuman(true);

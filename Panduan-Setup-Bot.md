@@ -60,6 +60,7 @@ Kerangka wajib (4 blok):
 Aturan menulis:
 - **Selalu Bahasa Indonesia** (pesan ke pelanggan wajib Indonesia).
 - Batasi panjang balasan ("maksimal 4 kalimat") — chat WA/widget tidak nyaman untuk paragraf panjang.
+- **Multi-bubble otomatis**: sistem sudah menginstruksikan model memecah jawaban panjang jadi 2–4 pesan pendek yang dikirim berurutan (tidak perlu ditulis di prompt). Yang bisa diatur lewat behavior: kalau bot TIDAK boleh memecah pesan (mis. jawaban formal satu blok), tulis "Selalu jawab dalam SATU pesan utuh, jangan pecah menjadi beberapa pesan"; kalau ingin lebih sering pecah, tulis "Biasakan menjawab dalam beberapa pesan pendek".
 - Beri **arah aksi**: prompt yang bagus selalu menyuruh bot menggerakkan percakapan (tanya kebutuhan → tawarkan paket → minta data pesanan), bukan sekadar menjawab.
 - Kalau bot punya tool Catat Pesanan: tulis eksplisit data apa yang harus dikumpulkan sebelum mencatat ("minta nama lengkap + alamat, konfirmasi item & jumlah, baru catat pesanan").
 - **Ingat: AI hanya melihat 10 pesan terakhir.** Untuk percakapan panjang, suruh bot merangkum/konfirmasi ulang data penting sebelum aksi ("sebelum mencatat, ulangi pesanan lengkap dan minta konfirmasi").

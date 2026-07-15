@@ -32,6 +32,7 @@ notify pgrst, 'reload schema';
 |---|---|---|
 | Rename folder sesi WA di VPS (`43.157.248.134`) dari `bot_id` → `user_id` | Migrasi 0017 (WA level akun) — worker pakai key sesi = user_id | Sesuai catatan proyek; cek kalau WA tidak connect |
 | `TELEGRAM_WEBHOOK_SECRET`, `BRIDGE_SHARED_TOKEN`, dst. di env Vercel | Verifikasi origin webhook | Sudah berjalan |
+| Deploy ulang `whatsapp-worker.mts` di VPS (pull kode terbaru + restart proses) | Balasan multi-bubble di WhatsApp — worker baru membaca `replies[]` dan mengirim per bubble. Tanpa update, WA tetap jalan tapi balasan panjang terkirim 1 pesan | ⬜ **BELUM — update worker di VPS** |
 
 ## Cara update file ini
 

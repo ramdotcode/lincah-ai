@@ -5,6 +5,7 @@ if (typeof window !== 'undefined') {
 import Groq from 'groq-sdk';
 import * as Sentry from '@sentry/nextjs';
 import { buildToolSchemas, executeTool, ToolContext } from '@/lib/tools';
+import { BUBBLE_INSTRUCTION, splitBubbles, joinBubbles } from '@/lib/bubbles';
 
 const groq = new Groq({
   apiKey: process.env.GROQ_API_KEY,
@@ -50,7 +51,8 @@ export interface KnowledgeSource {
 }
 
 export interface ProcessMessageResult {
-  aiResponse: string;
+  aiResponse: string;      // teks bersih (bubbles digabung '\n\n', tanpa penanda |||)
+  bubbles: string[];       // balasan terpecah per bubble untuk dikirim berurutan per channel
   handoffTriggered: boolean;
   latencyMainMs?: number;
   latencyHandoffMs?: number;
@@ -144,6 +146,7 @@ ${systemPrompt}
 ### BUSINESS KNOWLEDGE & CONTEXT
 The following is the specialized knowledge about the business. Use this as your primary source of truth.
 ${knowledgeContext || 'No specific business data provided yet. Use general knowledge if appropriate or ask for clarification.'}
+${BUBBLE_INSTRUCTION}
 `.trim();
 
   // Measure latency for both parallel requests
@@ -348,8 +351,13 @@ Reply ONLY with "YES" or "NO".`,
     handoffTriggered = results[1].value.choices[0]?.message?.content?.toUpperCase().includes('YES') || false;
   }
 
+  // Pecah balasan menjadi bubble (penanda ||| dari BUBBLE_INSTRUCTION);
+  // aiResponse yang keluar selalu bersih tanpa penanda.
+  const bubbles = splitBubbles(aiResponse);
+
   return {
-    aiResponse,
+    aiResponse: joinBubbles(bubbles),
+    bubbles,
     handoffTriggered,
     latencyMainMs,
     latencyHandoffMs,

@@ -288,9 +288,15 @@ export async function POST(req: NextRequest) {
 
     await supabaseAdmin.from('conversations').update(updateData).eq('id', conv.id);
 
-    // 7. Send response back to Telegram if not silent handoff or if still active
+    // 7. Send response back to Telegram if not silent handoff or if still active.
+    // Balasan panjang terpecah jadi beberapa bubble (lib/bubbles) — kirim berurutan
+    // dengan jeda singkat agar terasa seperti chat manusia.
     if (!aiResult.handoffTriggered || !bot.silent_handoff) {
-        await sendTelegramMessage(bot.telegram_token || process.env.TELEGRAM_BOT_TOKEN!, chatId, aiResult.aiResponse);
+        const bubbles = aiResult.bubbles?.length ? aiResult.bubbles : [aiResult.aiResponse];
+        for (let i = 0; i < bubbles.length; i++) {
+            if (i > 0) await new Promise((r) => setTimeout(r, 800));
+            await sendTelegramMessage(bot.telegram_token || process.env.TELEGRAM_BOT_TOKEN!, chatId, bubbles[i]);
+        }
     }
 
     // 8. If handoff triggered, optionally notify owner

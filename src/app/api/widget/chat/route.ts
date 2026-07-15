@@ -284,9 +284,12 @@ export async function POST(req: NextRequest) {
 
     await Promise.all([stagePromise, labelPromise]);
 
+    const showReply = !aiResult.handoffTriggered || !bot.silent_handoff;
     return NextResponse.json(
       {
-        reply: !aiResult.handoffTriggered || !bot.silent_handoff ? aiResult.aiResponse : null,
+        reply: showReply ? aiResult.aiResponse : null,
+        // Balasan terpecah per bubble — widget merender berurutan
+        replies: showReply ? aiResult.bubbles : null,
         handoff: aiResult.handoffTriggered,
       },
       { headers: CORS_HEADERS }

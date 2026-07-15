@@ -317,8 +317,10 @@ export async function POST(req: NextRequest) {
     // 7. Make sure classification finished (started in parallel, effectively done by now)
     await Promise.all([stagePromise, labelPromise]);
 
-    // 8. Return reply to bridge (which will send via WhatsApp)
-    return NextResponse.json({ reply: aiResult.aiResponse });
+    // 8. Return reply to bridge (which will send via WhatsApp).
+    // `replies` = balasan terpecah per bubble (worker baru mengirim berurutan);
+    // `reply` dipertahankan untuk worker lama (teks bersih tergabung).
+    return NextResponse.json({ reply: aiResult.aiResponse, replies: aiResult.bubbles });
   } catch (error: any) {
     console.error('WhatsApp Webhook Error:', error);
 
