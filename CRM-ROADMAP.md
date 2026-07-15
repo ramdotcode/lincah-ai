@@ -8,11 +8,11 @@ Ringkasan status per 14 Jul 2026 (akhir sesi pengembangan CRM). Dokumen terkait:
 
 ## ⏳ WAJIB dilakukan sebelum lanjut (belum selesai)
 
-- [ ] **Jalankan migrasi `0025_add_followup_labels.sql`** di Supabase SQL Editor
-- [ ] **Jalankan migrasi `0026_add_deal_value.sql`** di Supabase SQL Editor
+- [x] **Jalankan migrasi `0025_add_followup_labels.sql`** di Supabase SQL Editor ✅ (14 Jul 2026)
+- [x] **Jalankan migrasi `0026_add_deal_value.sql`** di Supabase SQL Editor ✅ (14 Jul 2026)
 - [ ] **Tes menyeluruh** ikut `TESTING-CRM.md` (Fase 0–9 + Regresi Cepat)
 
-> Migrasi 0019–0024 SUDAH dijalankan. Kode Fase 1–9 sudah selesai & lolos build + 332 unit test, TAPI belum dites manual end-to-end oleh user.
+> Migrasi 0019–0026 SUDAH dijalankan semua. Kode Fase 1–9 sudah selesai & lolos build + 332 unit test, TAPI belum dites manual end-to-end oleh user.
 
 ---
 

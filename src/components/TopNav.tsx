@@ -24,7 +24,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 const modules = [
   { name: 'Agents', icon: Zap, href: '/agents', roots: ['/agents', '/dashboard', '/platforms'] },
   { name: 'Chat', icon: MessageSquare, href: '/monitor', roots: ['/monitor', '/tickets', '/stats'] },
-  { name: 'CRM', icon: Users, href: '/leads', roots: ['/leads', '/contacts', '/orders'] },
+  { name: 'CRM', icon: Users, href: '/leads', roots: ['/leads', '/pipeline', '/contacts', '/orders'] },
   { name: 'Settings', icon: Settings, href: '/settings', roots: ['/settings'] },
 ];
 

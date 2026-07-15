@@ -203,11 +203,11 @@ Murni skenario pengetesan: **Lakukan → Cek**. Centang `[x]` kalau hasilnya ses
 ## Fase 7 — Stage Pipeline Custom *(setelah migrasi 0024 dijalankan — lihat WAJIB-MANUAL.md)*
 
 **Skenario 35: Bikin stage baru** ⭐
-- [ ] Lakukan: buka bot mana pun → Settings → tab **Pipeline** → ketik "Survey" di kotak bawah, pilih warna → **Tambah**.
+- [ ] Lakukan: buka **CRM → Pipeline** (`/pipeline`, tanpa perlu pilih bot) → ketik "Survey" di kotak bawah, pilih warna → **Tambah**.
       Cek: stage "Survey" muncul di daftar. Buka **CRM → Leads** (Kanban) → ada kolom baru "Survey".
 
 **Skenario 36: Ubah & urutkan**
-- [ ] Lakukan: di tab Pipeline, ganti label "New" jadi "Prospek" (klik teksnya, edit, klik luar), ganti warnanya, lalu klik panah naik/turun untuk memindah urutan.
+- [ ] Lakukan: di halaman Pipeline, ganti label "New" jadi "Prospek" (klik teksnya, edit, klik luar), ganti warnanya, lalu klik panah naik/turun untuk memindah urutan.
       Cek: di Leads, kolom ikut berubah nama/warna/urutan.
 
 **Skenario 37: Drag lead ke stage custom**
@@ -223,7 +223,7 @@ Murni skenario pengetesan: **Lakukan → Cek**. Centang `[x]` kalau hasilnya ses
       Cek: di **Chat → Analytics**, "Lead Funnel" menampilkan stage custom-mu, bukan lagi 5 stage lama.
 
 **Skenario 40: Hapus stage**
-- [ ] Lakukan: di tab Pipeline, hapus salah satu stage yang ada lead-nya.
+- [ ] Lakukan: di halaman Pipeline, hapus salah satu stage yang ada lead-nya.
       Cek: stage hilang; lead-nya pindah ke stage pertama (tidak hilang). Tidak bisa menghapus kalau tinggal 1 stage.
 
 ---

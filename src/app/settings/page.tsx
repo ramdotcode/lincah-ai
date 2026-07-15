@@ -19,14 +19,12 @@ import {
   Zap,
   HandMetal,
   Tag,
-  Kanban,
   Cpu
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import KnowledgeSources from '@/components/KnowledgeSources';
 import OrchestrationCanvas from '@/components/OrchestrationCanvas';
 import BotTools from '@/components/BotTools';
-import PipelineStages from '@/components/PipelineStages';
 import { DEFAULT_STAGES, PipelineStageDef } from '@/lib/stageConstants';
 
 function SettingsContent() {
@@ -75,7 +73,7 @@ function SettingsContent() {
     if (botId) fetchBot();
   }, [botId]);
 
-  // Stage pipeline akun (Fase 7) — level akun, dipakai tab Pipeline & selector Followups
+  // Stage pipeline akun (Fase 7) — level akun, dikelola di /pipeline (CRM); di sini untuk selector Followups
   useEffect(() => {
     (async () => {
       try {
@@ -203,7 +201,6 @@ function SettingsContent() {
     { name: 'General', icon: Settings },
     { name: 'Knowledge Sources', icon: BookOpen },
     { name: 'Integrations', icon: Share2 },
-    { name: 'Pipeline', icon: Kanban },
     { name: 'Followups', icon: Clock },
     { name: 'Evaluation', icon: MessageSquare },
     { name: 'Orchestration', icon: Sparkles },
@@ -519,10 +516,6 @@ function SettingsContent() {
                 onToggleTools={(enabled) => setBot({ ...bot, tools_enabled: enabled })}
               />
             </div>
-          </div>
-        ) : activeTab === 'Pipeline' ? (
-          <div className="flex-1 overflow-y-auto p-12 bg-[#fcfcfc] dark:bg-zinc-950/50">
-            <PipelineStages stages={stages} onChange={setStages} />
           </div>
         ) : activeTab === 'Followups' ? (
           <div className="flex-1 overflow-y-auto p-12 bg-[#fcfcfc] dark:bg-zinc-950/50">
