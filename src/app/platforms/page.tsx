@@ -225,49 +225,53 @@ export default function PlatformsPage() {
                           </div>
                         </div>
 
-                        {/* Live Status for Baileys — sesi worker di-key per akun */}
+                        {/* Live Status for Baileys — sesi worker di-key per akun.
+                            Nomor WA diambil otomatis dari hasil scan, jadi gak ada form no HP. */}
                         {(conn.bot_type || 'baileys') === 'baileys' && sessionKey && (
                           <div className="pt-4 animate-in fade-in slide-in-from-top-4 duration-500">
-                            <WhatsAppStatus botId={sessionKey} />
+                            <WhatsAppStatus
+                              botId={sessionKey}
+                              onConnected={(phone) =>
+                                setConn((prev) => (prev.phone_number === phone ? prev : { ...prev, phone_number: phone }))
+                              }
+                            />
                           </div>
                         )}
 
-                        <div className="space-y-4">
-                          <div className="flex flex-col gap-1.5">
-                            <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest px-1">WhatsApp Phone Number</label>
-                            <input
-                              type="text"
-                              placeholder="e.g. 628123456789"
-                              value={conn.phone_number}
-                              onChange={(e) => setConn({ ...conn, phone_number: e.target.value })}
-                              className="w-full bg-white dark:bg-zinc-900 border border-app rounded-xl px-4 py-2.5 text-xs text-main outline-none focus:border-emerald-500 shadow-sm"
-                            />
-                            <p className="text-[10px] text-muted-app px-1 italic">Use international format without &apos;+&apos;.</p>
-                          </div>
-
-                          {conn.bot_type === 'official' && (
-                            <div className="space-y-4 pt-4 border-t border-app">
-                              <div className="flex flex-col gap-1.5">
-                                <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest px-1">Phone Number ID</label>
-                                <input
-                                  type="text"
-                                  value={conn.phone_id}
-                                  onChange={(e) => setConn({ ...conn, phone_id: e.target.value })}
-                                  className="w-full bg-white dark:bg-zinc-900 border border-app rounded-xl px-4 py-2.5 text-xs text-main outline-none focus:border-blue-500 shadow-sm"
-                                />
-                              </div>
-                              <div className="flex flex-col gap-1.5">
-                                <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest px-1">Access Token</label>
-                                <input
-                                  type="password"
-                                  value={conn.access_token}
-                                  onChange={(e) => setConn({ ...conn, access_token: e.target.value })}
-                                  className="w-full bg-white dark:bg-zinc-900 border border-app rounded-xl px-4 py-2.5 text-xs text-main outline-none focus:border-blue-500 shadow-sm"
-                                />
-                              </div>
+                        {/* Meta Official butuh kredensial manual (Baileys tidak) */}
+                        {conn.bot_type === 'official' && (
+                          <div className="space-y-4">
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest px-1">WhatsApp Phone Number</label>
+                              <input
+                                type="text"
+                                placeholder="e.g. 628123456789"
+                                value={conn.phone_number}
+                                onChange={(e) => setConn({ ...conn, phone_number: e.target.value })}
+                                className="w-full bg-white dark:bg-zinc-900 border border-app rounded-xl px-4 py-2.5 text-xs text-main outline-none focus:border-blue-500 shadow-sm"
+                              />
+                              <p className="text-[10px] text-muted-app px-1 italic">Use international format without &apos;+&apos;.</p>
                             </div>
-                          )}
-                        </div>
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest px-1">Phone Number ID</label>
+                              <input
+                                type="text"
+                                value={conn.phone_id}
+                                onChange={(e) => setConn({ ...conn, phone_id: e.target.value })}
+                                className="w-full bg-white dark:bg-zinc-900 border border-app rounded-xl px-4 py-2.5 text-xs text-main outline-none focus:border-blue-500 shadow-sm"
+                              />
+                            </div>
+                            <div className="flex flex-col gap-1.5">
+                              <label className="text-[10px] uppercase font-bold text-muted-app tracking-widest px-1">Access Token</label>
+                              <input
+                                type="password"
+                                value={conn.access_token}
+                                onChange={(e) => setConn({ ...conn, access_token: e.target.value })}
+                                className="w-full bg-white dark:bg-zinc-900 border border-app rounded-xl px-4 py-2.5 text-xs text-main outline-none focus:border-blue-500 shadow-sm"
+                              />
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </motion.div>
                   )}

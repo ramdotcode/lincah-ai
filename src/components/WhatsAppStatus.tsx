@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
     QrCode, 
@@ -26,15 +26,19 @@ interface WhatsAppStatusData {
 
 interface Props {
     botId: string;
+    // Dipanggil saat sesi terdeteksi tersambung, kirim nomor WA hasil scan ke parent
+    onConnected?: (phone: string) => void;
 }
 
-export default function WhatsAppStatus({ botId }: Props) {
+export default function WhatsAppStatus({ botId, onConnected }: Props) {
     const [status, setStatus] = useState<WhatsAppStatusData | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
     const [isActive, setIsActive] = useState(false);
     const [isRestarting, setIsRestarting] = useState(false);
+    const [probed, setProbed] = useState(false);
+    const reportedPhoneRef = useRef<string | null>(null);
 
     const bridgeRoot = process.env.NEXT_PUBLIC_WHATSAPP_BRIDGE_URL || 'http://localhost:3001';
 
@@ -91,6 +95,31 @@ export default function WhatsAppStatus({ botId }: Props) {
         }
     };
 
+    // Probe sekali saat mount: kalau sesi di worker SUDAH tersambung (open) atau
+    // lagi connecting, langsung tandai aktif — jadi user gak perlu klik "Aktifkan"
+    // lagi tiap buka halaman padahal WA-nya sudah nyambung.
+    useEffect(() => {
+        if (!botId) return;
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await fetch(`${bridgeRoot}/status?botId=${botId}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (!cancelled && (data.status === 'open' || data.status === 'connecting')) {
+                        setStatus(data);
+                        setIsActive(true);
+                    }
+                }
+            } catch {
+                // worker offline — biarkan tampil tombol Aktifkan seperti biasa
+            } finally {
+                if (!cancelled) setProbed(true);
+            }
+        })();
+        return () => { cancelled = true; };
+    }, [botId, bridgeRoot]);
+
     useEffect(() => {
         if (isActive) {
             fetchStatus();
@@ -98,6 +127,17 @@ export default function WhatsAppStatus({ botId }: Props) {
             return () => clearInterval(interval);
         }
     }, [isActive, fetchStatus]);
+
+    // Begitu tersambung, kirim nomor WA hasil scan ke parent (sekali per nomor)
+    useEffect(() => {
+        if (status?.status === 'open' && status.user?.id) {
+            const phone = status.user.id.split(':')[0].split('@')[0];
+            if (phone && reportedPhoneRef.current !== phone) {
+                reportedPhoneRef.current = phone;
+                onConnected?.(phone);
+            }
+        }
+    }, [status, onConnected]);
 
     const getStatusConfig = (status: string | undefined) => {
         switch (status) {
@@ -151,8 +191,19 @@ export default function WhatsAppStatus({ botId }: Props) {
 
             <div className="bg-muted/30 border border-app rounded-2xl p-6 overflow-hidden relative group">
                 <AnimatePresence mode="wait">
-                    {!isActive ? (
-                        <motion.div 
+                    {!isActive && !probed ? (
+                        <motion.div
+                            key="probing"
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="flex flex-col items-center justify-center py-8 gap-3"
+                        >
+                            <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
+                            <p className="text-[10px] text-muted-app font-medium">Mengecek koneksi WhatsApp...</p>
+                        </motion.div>
+                    ) : !isActive ? (
+                        <motion.div
                             key="inactive"
                             initial={{ opacity: 0 }}
                             animate={{ opacity: 1 }}
@@ -168,7 +219,7 @@ export default function WhatsAppStatus({ botId }: Props) {
                                     Aktifkan integrasi untuk menerima dan membalas pesan.
                                 </p>
                             </div>
-                            <button 
+                            <button
                                 onClick={activateSession}
                                 className="px-6 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-bold hover:bg-blue-700 transition-all shadow-lg shadow-blue-600/20"
                             >
@@ -228,6 +279,9 @@ export default function WhatsAppStatus({ botId }: Props) {
                                     </div>
                                     <p className="text-[10px] text-muted-app text-center max-w-[200px] leading-relaxed">
                                         Scan QR ini untuk menghubungkan bot.
+                                    </p>
+                                    <p className="text-[10px] text-amber-500 text-center max-w-[240px] leading-relaxed bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                                        ⚠️ Kalau nomor ini sudah pernah tersambung ke bot lain, buka <span className="font-bold">WhatsApp › Perangkat Tertaut</span> dan putuskan yang lama dulu biar gak ada dua bot yang balas.
                                     </p>
                                 </div>
                             ) : (
