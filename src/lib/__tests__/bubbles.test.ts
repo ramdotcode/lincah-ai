@@ -33,6 +33,29 @@ describe('splitBubbles', () => {
     expect(splitBubbles(`  ${BUBBLE_DELIMITER}  `)).toEqual(['|||']);
   });
 
+  it('membuang bubble yang nyaris duplikat (parafrase kecil)', () => {
+    const b1 = 'Selamat datang di WebCraft Studio! Kami adalah agensi pembuatan website yang berdiri sejak 2021 di Jakarta Selatan. Apa yang Anda butuhkan hari ini?';
+    const b2 = 'Selamat datang di WebCraft Studio! Kami adalah agensi pembuatan website yang berdiri sejak 2021 di Jakarta Selatan. Apa yang Anda cari hari ini?';
+    const b3 = 'Kami punya Paket Starter, Paket Bisnis, dan Paket Toko Online — mau saya jelaskan?';
+    expect(splitBubbles([b1, b2, b3].join(BUBBLE_DELIMITER))).toEqual([b1, b3]);
+  });
+
+  it('membuang bubble duplikat persis', () => {
+    expect(splitBubbles(`Halo kak!${BUBBLE_DELIMITER}Halo kak!${BUBBLE_DELIMITER}Ada yang bisa dibantu?`)).toEqual([
+      'Halo kak!',
+      'Ada yang bisa dibantu?',
+    ]);
+  });
+
+  it('tidak membuang bubble yang topiknya beda', () => {
+    const bubbles = [
+      'Paket Starter Rp 1.500.000 untuk landing page.',
+      'Paket Bisnis Rp 4.500.000 untuk company profile 5 halaman.',
+      'Mau saya bantu pilihkan sesuai kebutuhan?',
+    ];
+    expect(splitBubbles(bubbles.join(BUBBLE_DELIMITER))).toEqual(bubbles);
+  });
+
   it('mempertahankan newline di dalam satu bubble', () => {
     expect(splitBubbles(`Daftar harga:\n- A 1000\n- B 2000${BUBBLE_DELIMITER}Mau pilih yang mana?`)).toEqual([
       'Daftar harga:\n- A 1000\n- B 2000',
