@@ -32,8 +32,9 @@ notify pgrst, 'reload schema';
 |---|---|---|
 | Rename folder sesi WA di VPS (`43.157.248.134`) dari `bot_id` → `user_id` | Migrasi 0017 (WA level akun) — worker pakai key sesi = user_id | Sesuai catatan proyek; cek kalau WA tidak connect |
 | `TELEGRAM_WEBHOOK_SECRET`, `BRIDGE_SHARED_TOKEN`, dst. di env Vercel | Verifikasi origin webhook | Sudah berjalan |
-| Deploy ulang `whatsapp-worker.mts` di VPS (pull kode terbaru + restart proses) | Balasan multi-bubble di WhatsApp — worker baru membaca `replies[]` dan mengirim per bubble. Tanpa update, WA tetap jalan tapi balasan panjang terkirim 1 pesan | ⬜ **BELUM — update worker di VPS** |
-| Tambah crontab di VPS: `*/20 * * * * curl -s -o /dev/null -H "Authorization: Bearer <CRON_SECRET>" https://<domain-vercel>/api/cron/followups` (`crontab -e`) | Follow-up tiap 20 menit — Vercel Hobby melarang cron <1x/hari, jadi `vercel.json` diturunkan ke 1x/hari (cadangan) dan pemicu utama pindah ke VPS | ⬜ **BELUM — tambah crontab di VPS** |
+| Deploy ulang `whatsapp-worker.mts` di VPS (pull kode terbaru + restart proses) | Balasan multi-bubble di WhatsApp — worker baru membaca `replies[]` dan mengirim per bubble | ✅ sudah (15 Jul 2026 — `git pull` + `pm2 restart wa-worker`, health ok) |
+| Tambah crontab di VPS: `*/20 * * * * curl -s -o /dev/null -H "Authorization: Bearer <CRON_SECRET>" https://lincah-ai.vercel.app/api/cron/followups` | Follow-up tiap 20 menit — Vercel Hobby melarang cron <1x/hari, jadi `vercel.json` diturunkan ke 1x/hari (cadangan) dan pemicu utama pindah ke VPS | ✅ sudah (15 Jul 2026 — terverifikasi jalan, balas `{"ok":true}`) |
+| Env Vercel: `CRON_SECRET` (baru dibuat) + `WHATSAPP_BRIDGE_URL=http://43.157.248.134:3001` | Auth endpoint cron + app bisa kirim WA outbound (balasan manual, follow-up, status bridge) | ✅ sudah (15 Jul 2026 + redeploy) |
 
 ## Cara update file ini
 
