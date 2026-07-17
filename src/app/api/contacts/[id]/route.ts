@@ -35,7 +35,7 @@ export async function GET(
   // Semua percakapan kontak ini (lintas bot), tanpa history penuh agar ringan
   const { data: conversations } = await supabaseAdmin
     .from('conversations')
-    .select('id, bot_id, platform, stage, status, last_message, last_message_at, created_at, bots(name)')
+    .select('id, bot_id, platform, stage, status, last_message, last_message_at, created_at, bots!bot_id(name)')
     .eq('contact_id', id)
     .order('last_message_at', { ascending: false });
 

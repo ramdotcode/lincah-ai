@@ -42,7 +42,7 @@ export async function PATCH(req: NextRequest) {
     // Cek kepemilikan: conversation harus milik bot user ini
     const { data: conv, error: convError } = await supabaseAdmin
       .from('conversations')
-      .select('id, bot_id, bots!inner(user_id)')
+      .select('id, bot_id, bots!bot_id!inner(user_id)')
       .eq('id', id)
       .single();
 

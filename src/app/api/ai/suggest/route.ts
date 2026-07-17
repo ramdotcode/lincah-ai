@@ -21,7 +21,7 @@ export async function POST(req: NextRequest) {
     // 1. Get conversation and bot context
     const { data: conv, error: convError } = await supabaseAdmin
       .from('conversations')
-      .select('*, bots(*)')
+      .select('*, bots!bot_id(*)')
       .eq('id', conversationId)
       .single();
 

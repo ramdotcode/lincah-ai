@@ -44,9 +44,11 @@ export async function canAccessConversation(
 ): Promise<boolean> {
   if (await isAdmin(userId)) return true;
 
+  // Embed harus pakai hint bot_id: sejak migrasi 0016, conversations punya
+  // dua FK ke bots (bot_id + active_child_bot_id) sehingga `bots!inner` ambigu.
   const { data } = await supabaseAdmin
     .from('conversations')
-    .select('id, bots!inner(user_id)')
+    .select('id, bots!bot_id!inner(user_id)')
     .eq('id', conversationId)
     .maybeSingle();
 
