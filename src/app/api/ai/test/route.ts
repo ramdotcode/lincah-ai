@@ -3,6 +3,7 @@ import { processMessage } from '@/lib/ai';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase';
+import { logEvent } from '@/lib/eventLog';
 
 export async function POST(req: NextRequest) {
   try {
@@ -45,6 +46,27 @@ export async function POST(req: NextRequest) {
       knowledgeSources,
       aiModel || 'groq'
     );
+
+    // Catat sesi Playground ke event_logs juga (fire-and-forget) supaya token
+    // & model yang menjawab ikut muncul di admin/usage saat tes fallback.
+    if (botId) {
+      logEvent({
+        bot_id: botId,
+        channel: 'playground',
+        event_type: 'message_processed',
+        latency_main_ms: result.latencyMainMs,
+        latency_handoff_ms: result.latencyHandoffMs,
+        prompt_tokens: result.promptTokens,
+        completion_tokens: result.completionTokens,
+        handoff_result: result.handoffTriggered,
+        metadata: {
+          ai_model: aiModel || 'groq',
+          model_used: result.modelUsed,
+          used_fallback: result.usedFallback || false,
+          playground: true,
+        },
+      });
+    }
 
     return NextResponse.json(result);
   } catch (error: any) {

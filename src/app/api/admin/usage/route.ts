@@ -4,7 +4,20 @@ import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase';
 import { isAdmin } from '@/lib/roles';
 
-const MODEL_KEYS = ['groq', 'deepseek', 'zai', 'nvidia'] as const;
+const MODEL_KEYS = ['groq', 'cerebras', 'openrouter', 'lainnya'] as const;
+
+// Kelompokkan per provider dari model yang benar-benar menjawab (meta.model_used,
+// terisi sejak fallback chain). Baris lama tanpa model_used dianggap Groq;
+// model NIM lama (deepseek-ai/..., z-ai/..., nvidia/...) masuk 'lainnya'.
+const CEREBRAS_MODELS = ['gpt-oss-120b', 'gemma-4-31b', 'zai-glm-4.7'];
+
+function providerBucket(meta: Record<string, unknown>): (typeof MODEL_KEYS)[number] {
+  const modelUsed = typeof meta.model_used === 'string' ? meta.model_used : '';
+  if (modelUsed.endsWith(':free')) return 'openrouter';
+  if (CEREBRAS_MODELS.includes(modelUsed)) return 'cerebras';
+  if (modelUsed.includes('/')) return 'lainnya';
+  return 'groq';
+}
 
 function percentile(sorted: number[], p: number): number | null {
   if (sorted.length === 0) return null;
@@ -84,9 +97,7 @@ export async function GET() {
 
     for (const row of rows) {
       const meta = (row.metadata || {}) as Record<string, unknown>;
-      const rawModel = typeof meta.ai_model === 'string' ? meta.ai_model : 'groq';
-      // Events lama ('standard'/'advance') semuanya Groq-backed
-      const model = (MODEL_KEYS as readonly string[]).includes(rawModel) ? rawModel : 'groq';
+      const model = providerBucket(meta);
       const tokens = (row.prompt_tokens || 0) + (row.completion_tokens || 0);
 
       const day = jakartaDay(row.created_at);

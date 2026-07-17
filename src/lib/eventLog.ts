@@ -3,7 +3,7 @@ import { supabaseAdmin } from './supabase';
 export interface EventLogPayload {
   bot_id: string;
   conversation_id?: string;
-  channel: 'telegram' | 'whatsapp' | 'webchat';
+  channel: 'telegram' | 'whatsapp' | 'webchat' | 'playground';
   event_type: 'message_processed' | 'ai_error' | 'webhook_error' | 'handoff' | 'rate_limited' | 'stage_classified' | 'labels_classified' | 'followup_sent' | 'followup_failed' | 'agent_handoff';
   latency_main_ms?: number;
   latency_handoff_ms?: number;

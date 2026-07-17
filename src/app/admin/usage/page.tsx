@@ -14,9 +14,9 @@ import {
 
 const MODEL_META: Record<string, { label: string; bar: string; dot: string }> = {
   groq: { label: 'Groq (Llama 3.3 70B)', bar: 'bg-blue-500/80', dot: 'bg-blue-500' },
-  deepseek: { label: 'DeepSeek v4 Flash', bar: 'bg-purple-500/80', dot: 'bg-purple-500' },
-  zai: { label: 'Z.AI GLM 5.2', bar: 'bg-orange-500/80', dot: 'bg-orange-500' },
-  nvidia: { label: 'Nvidia Nemotron 550B', bar: 'bg-green-500/80', dot: 'bg-green-500' },
+  cerebras: { label: 'Cerebras (gpt-oss-120b)', bar: 'bg-orange-500/80', dot: 'bg-orange-500' },
+  openrouter: { label: 'OpenRouter (:free)', bar: 'bg-purple-500/80', dot: 'bg-purple-500' },
+  lainnya: { label: 'Lainnya (NIM lama)', bar: 'bg-zinc-500/80', dot: 'bg-zinc-500' },
 };
 
 interface DayTokens {
@@ -190,12 +190,12 @@ export default function AdminUsagePage() {
 
           <div className="bg-card-app border border-app rounded-2xl p-5">
             <div className="flex items-center gap-2 text-sub text-sm mb-2">
-              <Undo2 className="w-4 h-4" /> Fallback ke Groq
+              <Undo2 className="w-4 h-4" /> Pakai Fallback
             </div>
             <div className={`text-2xl font-bold ${data && data.totals.fallbacks > 0 ? 'text-yellow-400' : 'text-main'}`}>
               {data ? data.totals.fallbacks : '—'}
             </div>
-            <div className="text-xs text-sub mt-1">NIM gagal, Groq mengambil alih</div>
+            <div className="text-xs text-sub mt-1">Groq gagal, Cerebras/OpenRouter mengambil alih</div>
           </div>
 
           <div className="bg-card-app border border-app rounded-2xl p-5">
