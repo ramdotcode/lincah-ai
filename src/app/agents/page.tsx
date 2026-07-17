@@ -117,6 +117,23 @@ export default function AgentsPage() {
 
         {/* Grid Layout */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          {/* Skeleton saat load pertama (refresh tetap menampilkan list lama) */}
+          {loading && agents.length === 0 &&
+            [...Array(3)].map((_, i) => (
+              <div
+                key={`skeleton-${i}`}
+                className="bg-card-app border border-app rounded-[2rem] p-8 flex flex-col items-center shadow-sm animate-pulse min-h-[300px]"
+              >
+                <div className="h-5 w-32 bg-muted rounded-full mb-6" />
+                <div className="w-16 h-16 rounded-full bg-muted mb-8 border-2 border-app" />
+                <div className="flex items-center gap-2 w-full mt-auto">
+                  <div className="flex-1 h-9 bg-muted rounded-lg" />
+                  <div className="w-9 h-9 bg-muted rounded-lg" />
+                  <div className="w-9 h-9 bg-muted rounded-lg" />
+                </div>
+              </div>
+            ))}
+
           {/* List Agent Cards */}
           <AnimatePresence>
             {agents.map((agent) => (
