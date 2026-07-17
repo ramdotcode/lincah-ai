@@ -2,42 +2,102 @@ if (typeof window !== 'undefined') {
   throw new Error('This module can only be used on the server to protect API keys.');
 }
 
-import Groq from 'groq-sdk';
 import * as Sentry from '@sentry/nextjs';
 import { buildToolSchemas, executeTool, ToolContext } from '@/lib/tools';
 import { BUBBLE_INSTRUCTION, splitBubbles, joinBubbles } from '@/lib/bubbles';
 
-const groq = new Groq({
-  apiKey: process.env.GROQ_API_KEY,
-});
-
-// Nvidia NIM client using fetch
-const nvidiaClient = {
-  baseUrl: process.env.NVIDIA_NIM_BASE_URL || 'https://integrate.api.nvidia.com/v1',
-  apiKey: process.env.NVIDIA_NIM_API_KEY,
-  
-  async chatCompletions(payload: any) {
-    if (!this.apiKey) {
-      throw new Error('NVIDIA_NIM_API_KEY is not configured');
-    }
-    
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      const error = await response.text();
-      throw new Error(`Nvidia NIM API error: ${response.status} - ${error}`);
-    }
-
-    return response.json();
+// Rantai fallback provider — semua OpenAI-compatible, urutan = prioritas.
+// Groq (utama, tercepat) → Cerebras (free tier cepat) → OpenRouter (model :free).
+// Nvidia NIM sengaja tidak dipakai (latensi terlalu tinggi).
+// Provider tanpa API key di env otomatis dilewati.
+const PROVIDERS = [
+  {
+    name: 'groq',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    apiKey: process.env.GROQ_API_KEY,
+    models: { main: 'llama-3.3-70b-versatile', fast: 'llama-3.1-8b-instant' },
   },
-};
+  {
+    // Free tier Cerebras (Jul 2026) hanya: gpt-oss-120b, zai-glm-4.7, gemma-4-31b
+    // (5 RPM / 30K TPM / 1M token per hari per model)
+    name: 'cerebras',
+    baseUrl: 'https://api.cerebras.ai/v1',
+    apiKey: process.env.CEREBRAS_API_KEY,
+    models: { main: 'gpt-oss-120b', fast: 'gemma-4-31b' },
+  },
+  {
+    // Model :free OpenRouter (20 RPM / 200 req per hari); llama-3.3-70b:free
+    // dihapus 19 Jul 2026, jadi pakai gpt-oss & llama kecil
+    name: 'openrouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    apiKey: process.env.OPENROUTER_API_KEY,
+    models: { main: 'openai/gpt-oss-20b:free', fast: 'meta-llama/llama-3.2-3b-instruct:free' },
+  },
+];
+
+// 'main' = balasan utama (70B-class), 'fast' = classifier YES/NO (8B-class)
+type ModelTier = 'main' | 'fast';
+
+interface ChatResult {
+  data: any;        // JSON respons OpenAI-compatible (choices, usage, ...)
+  provider: string; // provider yang akhirnya menjawab
+  model: string;    // model yang dipakai provider tersebut
+}
+
+async function callProvider(
+  provider: (typeof PROVIDERS)[number],
+  tier: ModelTier,
+  payload: any
+): Promise<ChatResult> {
+  const model = provider.models[tier];
+  const res = await fetch(`${provider.baseUrl}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${provider.apiKey}`,
+    },
+    body: JSON.stringify({ model, ...payload }),
+  });
+
+  if (!res.ok) {
+    const error = (await res.text()).slice(0, 300);
+    throw new Error(`${provider.name} API error: ${res.status} - ${error}`);
+  }
+
+  return { data: await res.json(), provider: provider.name, model };
+}
+
+// Coba tiap provider berurutan (rate limit/error → lanjut ke berikutnya);
+// lempar error terakhir bila semua gagal.
+async function chatWithFallback(
+  tier: ModelTier,
+  payload: any,
+  feature: string
+): Promise<ChatResult> {
+  // Untuk tes lokal: matikan provider tertentu tanpa menghapus API key-nya,
+  // mis. AI_DISABLE_PROVIDERS=groq → langsung jatuh ke Cerebras/OpenRouter.
+  const disabled = (process.env.AI_DISABLE_PROVIDERS || '')
+    .split(',')
+    .map(s => s.trim().toLowerCase())
+    .filter(Boolean);
+  const available = PROVIDERS.filter(p => p.apiKey && !disabled.includes(p.name));
+  if (available.length === 0) {
+    throw new Error('Tidak ada API key AI yang terkonfigurasi (GROQ_API_KEY / CEREBRAS_API_KEY / OPENROUTER_API_KEY)');
+  }
+
+  let lastError: unknown;
+  for (const provider of available) {
+    try {
+      return await callProvider(provider, tier, payload);
+    } catch (error) {
+      lastError = error;
+      Sentry.captureException(error, {
+        tags: { provider: provider.name, model: provider.models[tier], feature },
+      });
+    }
+  }
+  throw lastError;
+}
 
 export interface Message {
   role: 'user' | 'assistant' | 'system';
@@ -59,7 +119,7 @@ export interface ProcessMessageResult {
   promptTokens?: number;
   completionTokens?: number;
   modelUsed?: string;      // model that actually produced the reply (after fallback)
-  usedFallback?: boolean;  // true if NIM failed and Groq took over
+  usedFallback?: boolean;  // true bila Groq gagal dan Cerebras/OpenRouter mengambil alih
   errorMessage?: string;   // set when the main call failed entirely
   toolCallsMade?: number;  // number of tool executions during this reply (Fase D)
 }
@@ -67,36 +127,9 @@ export interface ProcessMessageResult {
 // Sent to the customer when every model attempt fails — never leave the bot silent
 const FALLBACK_REPLY = 'Maaf, sistem sedang sibuk. Mohon coba beberapa saat lagi ya 🙏';
 
-// Model configuration based on ai_model selection.
-// Handoff detection always runs on Groq (fast) regardless of main provider.
-const HANDOFF_MODEL = 'llama-3.1-8b-instant';
-
-const MODEL_CONFIG = {
-  groq: {
-    provider: 'groq',
-    main: 'llama-3.3-70b-versatile',    // Groq's most capable model
-    temperature: 0.7,
-    maxTokens: 1024,
-  },
-  deepseek: {
-    provider: 'nvidia',
-    main: 'deepseek-ai/deepseek-v4-flash',  // DeepSeek v4 Flash via NIM
-    temperature: 0.7,
-    maxTokens: 4096, // reasoning model: needs headroom for thinking + answer
-  },
-  zai: {
-    provider: 'nvidia',
-    main: 'z-ai/glm-5.2',                   // Z.AI GLM 5.2 via NIM
-    temperature: 0.7,
-    maxTokens: 1024,
-  },
-  nvidia: {
-    provider: 'nvidia',
-    main: 'nvidia/nemotron-3-ultra-550b-a55b', // Nvidia Nemotron 3 Ultra
-    temperature: 0.7,
-    maxTokens: 1024,
-  },
-};
+// Parameter default balasan utama (semua provider di rantai)
+const MAIN_TEMPERATURE = 0.7;
+const MAIN_MAX_TOKENS = 1024;
 
 // Batas putaran tool: model boleh memanggil tools maksimal 3 ronde per balasan
 const MAX_TOOL_ROUNDS = 3;
@@ -113,13 +146,11 @@ export async function processMessage(
   // 0. Limit history to save tokens
   const trimmedHistory = history.slice(-10);
 
-  // Select model configuration
-  const config = MODEL_CONFIG[aiModel as keyof typeof MODEL_CONFIG] || MODEL_CONFIG.groq;
-  const mainModel = config.main;
-  const handoffModel = HANDOFF_MODEL;
-  const temperature = config.temperature;
-  const maxTokens = config.maxTokens;
-  const provider = config.provider;
+  // aiModel (pilihan provider lama per-bot: deepseek/zai/nvidia) tidak dipakai
+  // lagi — semua balasan lewat rantai fallback Groq → Cerebras → OpenRouter.
+  void aiModel;
+  const temperature = MAIN_TEMPERATURE;
+  const maxTokens = MAIN_MAX_TOKENS;
 
   // Group and Format Knowledge Context
   let knowledgeContext = '';
@@ -154,7 +185,7 @@ ${BUBBLE_INSTRUCTION}
   let latencyHandoffMs = 0;
   let promptTokens = 0;
   let completionTokens = 0;
-  let modelUsed = mainModel;
+  let modelUsed = PROVIDERS[0].models.main;
   let usedFallback = false;
   let toolCallsMade = 0;
 
@@ -172,22 +203,20 @@ ${BUBBLE_INSTRUCTION}
         { role: 'user' as const, content: userMessage },
       ];
 
-      // Tool use (Fase D): always via Groq 70B — NIM models here don't do
-      // function calling reliably, so tools override the provider choice.
+      // Tool use (Fase D): lewat rantai fallback juga — payload tools identik
+      // untuk semua provider OpenAI-compatible di rantai.
       if (toolSchemas.length > 0 && toolContext) {
         const toolMessages: any[] = [...mainMessages];
-        modelUsed = MODEL_CONFIG.groq.main;
         try {
-          let response = await groq.chat.completions.create({
+          let result = await chatWithFallback('main', {
             messages: toolMessages,
-            model: MODEL_CONFIG.groq.main,
             temperature,
             tools: toolSchemas,
             tool_choice: 'auto',
-          });
+          }, 'tool_use');
 
           for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-            const msg = response.choices[0]?.message;
+            const msg = result.data.choices[0]?.message;
             if (!msg?.tool_calls?.length) break;
 
             toolMessages.push(msg);
@@ -198,88 +227,64 @@ ${BUBBLE_INSTRUCTION}
               } catch {
                 // biarkan args kosong; executor akan mengembalikan pesan error yang ramah
               }
-              const result = await executeTool(call.function.name, args, toolContext);
+              const toolResult = await executeTool(call.function.name, args, toolContext);
               toolCallsMade++;
-              toolMessages.push({ role: 'tool', tool_call_id: call.id, content: result });
+              toolMessages.push({ role: 'tool', tool_call_id: call.id, content: toolResult });
             }
 
             // Ronde terakhir: paksa jawaban teks agar tidak menggantung di tool_calls
             const isLastRound = round === MAX_TOOL_ROUNDS - 1;
-            response = await groq.chat.completions.create({
+            result = await chatWithFallback('main', {
               messages: toolMessages,
-              model: MODEL_CONFIG.groq.main,
               temperature,
-              ...(isLastRound ? {} : { tools: toolSchemas, tool_choice: 'auto' as const }),
-            });
+              ...(isLastRound ? {} : { tools: toolSchemas, tool_choice: 'auto' }),
+            }, 'tool_use');
           }
 
           latencyMainMs = Math.round(performance.now() - startTime);
-          if (response.usage) {
-            promptTokens = response.usage.prompt_tokens;
-            completionTokens = response.usage.completion_tokens;
+          modelUsed = result.model;
+          usedFallback = result.provider !== 'groq';
+          if (result.data.usage) {
+            promptTokens = result.data.usage.prompt_tokens;
+            completionTokens = result.data.usage.completion_tokens;
           }
-          return response;
+          return result;
         } catch (error) {
           latencyMainMs = Math.round(performance.now() - startTime);
           Sentry.captureException(error, {
-            tags: { model: MODEL_CONFIG.groq.main, provider: 'groq', feature: 'tool_use' },
+            tags: { feature: 'tool_use', fallback_chain: 'exhausted' },
           });
           throw error;
         }
       }
 
-      const callMain = (prov: string, model: string) =>
-        prov === 'nvidia'
-          ? nvidiaClient.chatCompletions({
-              model,
-              messages: mainMessages,
-              temperature: temperature,
-              max_tokens: maxTokens,
-            })
-          : groq.chat.completions.create({
-              messages: mainMessages,
-              model,
-              temperature: temperature,
-            });
-
       try {
-        let response;
-
-        try {
-          response = await callMain(provider, mainModel);
-        } catch (error) {
-          // NIM down or rate-limited: retry once via Groq so the bot still replies
-          if (provider !== 'nvidia') throw error;
-
-          Sentry.captureException(error, {
-            tags: { model: mainModel, provider: provider, fallback: 'groq' },
-          });
-          usedFallback = true;
-          modelUsed = MODEL_CONFIG.groq.main;
-          response = await callMain('groq', MODEL_CONFIG.groq.main);
-        }
+        const result = await chatWithFallback('main', {
+          messages: mainMessages,
+          temperature,
+          max_tokens: maxTokens,
+        }, 'main_reply');
 
         latencyMainMs = Math.round(performance.now() - startTime);
+        modelUsed = result.model;
+        usedFallback = result.provider !== 'groq';
         // Capture tokens from main model
-        if (response.usage) {
-          promptTokens = response.usage.prompt_tokens;
-          completionTokens = response.usage.completion_tokens;
+        if (result.data.usage) {
+          promptTokens = result.data.usage.prompt_tokens;
+          completionTokens = result.data.usage.completion_tokens;
         }
-        return response;
+        return result;
       } catch (error) {
         latencyMainMs = Math.round(performance.now() - startTime);
         Sentry.captureException(error, {
           tags: {
-            model: mainModel,
-            provider: provider,
+            feature: 'main_reply',
+            fallback_chain: 'exhausted',
             error_type: error instanceof Error && error.message.includes('429') ? 'rate_limit' :
                        error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'other',
           },
           contexts: {
             ai_api: {
-              model: mainModel,
-              provider: provider,
-              ai_model_selected: aiModel,
               message_count: trimmedHistory.length,
             },
           },
@@ -291,8 +296,8 @@ ${BUBBLE_INSTRUCTION}
     (async () => {
       const startTime = performance.now();
       try {
-        // Always via Groq: NIM free tier is too slow for a YES/NO check
-        const response = await groq.chat.completions.create({
+        // Model kecil (tier fast) cukup untuk cek YES/NO
+        const result = await chatWithFallback('fast', {
           messages: [
             {
               role: 'system',
@@ -303,26 +308,22 @@ Reply ONLY with "YES" or "NO".`,
             ...trimmedHistory,
             { role: 'user', content: userMessage },
           ],
-          model: handoffModel,
           temperature: 0,
-        });
+        }, 'handoff_check');
 
         latencyHandoffMs = Math.round(performance.now() - startTime);
-        return response;
+        return result;
       } catch (error) {
         latencyHandoffMs = Math.round(performance.now() - startTime);
         Sentry.captureException(error, {
           tags: {
-            model: handoffModel,
-            provider: 'groq',
+            feature: 'handoff_check',
+            fallback_chain: 'exhausted',
             error_type: error instanceof Error && error.message.includes('429') ? 'rate_limit' :
                        error instanceof Error && error.message.includes('timeout') ? 'timeout' : 'other',
           },
           contexts: {
             ai_api: {
-              model: handoffModel,
-              provider: provider,
-              ai_model_selected: aiModel,
               message_count: trimmedHistory.length,
             },
           },
@@ -337,7 +338,7 @@ Reply ONLY with "YES" or "NO".`,
   let errorMessage: string | undefined;
 
   if (results[0].status === 'fulfilled') {
-    aiResponse = results[0].value.choices[0]?.message?.content || '';
+    aiResponse = results[0].value.data.choices[0]?.message?.content || '';
   } else {
     errorMessage = results[0].reason instanceof Error ? results[0].reason.message : String(results[0].reason);
   }
@@ -348,7 +349,7 @@ Reply ONLY with "YES" or "NO".`,
   }
 
   if (results[1].status === 'fulfilled') {
-    handoffTriggered = results[1].value.choices[0]?.message?.content?.toUpperCase().includes('YES') || false;
+    handoffTriggered = results[1].value.data.choices[0]?.message?.content?.toUpperCase().includes('YES') || false;
   }
 
   // Pecah balasan menjadi bubble (penanda ||| dari BUBBLE_INSTRUCTION);
@@ -385,7 +386,7 @@ export interface HandoffCandidate {
 
 // Orchestration (parent-child): cek apakah salah satu kondisi handoff child
 // terpenuhi. Default NONE — chat TIDAK pindah kecuali kondisinya jelas terpenuhi.
-// Mirrors the handoff checker: always Groq 8B, temp 0, one-word answer.
+// Mirrors the handoff checker: tier fast (8B) via rantai fallback, temp 0.
 // Never throws — a failed evaluation must not disturb the reply flow.
 export async function evaluateAssignConditions(
   candidates: HandoffCandidate[],
@@ -401,7 +402,7 @@ export async function evaluateAssignConditions(
   const candidateNames = candidates.map(c => c.name).join(', ');
 
   try {
-    const response = await groq.chat.completions.create({
+    const { data: response } = await chatWithFallback('fast', {
       messages: [
         {
           role: 'system',
@@ -413,9 +414,8 @@ If no condition is clearly met, or you are unsure, reply ONLY with: NONE.`,
         ...trimmedHistory,
         { role: 'user', content: userMessage },
       ],
-      model: HANDOFF_MODEL,
       temperature: 0,
-    });
+    }, 'agent_handoff');
 
     const latencyMs = Math.round(performance.now() - startTime);
     const raw = response.choices[0]?.message?.content?.trim().toLowerCase() || '';
@@ -444,7 +444,7 @@ If no condition is clearly met, or you are unsure, reply ONLY with: NONE.`,
   } catch (error) {
     const latencyMs = Math.round(performance.now() - startTime);
     Sentry.captureException(error, {
-      tags: { model: HANDOFF_MODEL, provider: 'groq', feature: 'agent_handoff' },
+      tags: { feature: 'agent_handoff', fallback_chain: 'exhausted' },
     });
     return {
       answer: null,
@@ -465,7 +465,7 @@ export async function evaluateRevertCondition(
   const startTime = performance.now();
 
   try {
-    const response = await groq.chat.completions.create({
+    const { data: response } = await chatWithFallback('fast', {
       messages: [
         {
           role: 'system',
@@ -475,9 +475,8 @@ Based on the conversation and the customer's latest message, reply ONLY with YES
         ...trimmedHistory,
         { role: 'user', content: userMessage },
       ],
-      model: HANDOFF_MODEL,
       temperature: 0,
-    });
+    }, 'agent_revert');
 
     const latencyMs = Math.round(performance.now() - startTime);
     const raw = response.choices[0]?.message?.content?.trim().toUpperCase() || '';
@@ -491,7 +490,7 @@ Based on the conversation and the customer's latest message, reply ONLY with YES
   } catch (error) {
     const latencyMs = Math.round(performance.now() - startTime);
     Sentry.captureException(error, {
-      tags: { model: HANDOFF_MODEL, provider: 'groq', feature: 'agent_handoff' },
+      tags: { feature: 'agent_revert', fallback_chain: 'exhausted' },
     });
     return {
       answer: null,
@@ -520,7 +519,7 @@ Stages:
 - lost: explicitly declined, not interested, or bought elsewhere
 Reply ONLY with one word: new, interested, negotiating, won, or lost.`;
 
-// Mirrors the handoff checker: always Groq 8B, temp 0, one-word answer.
+// Mirrors the handoff checker: tier fast (8B) via rantai fallback, temp 0.
 // Never throws — a failed classification must not disturb the reply flow.
 // `stages` (Fase 7): daftar stage custom akun {key,label}. Bila diberikan, prompt
 // dibangun dari label-nya & hasil dipetakan balik ke key. Tanpa itu → default 5 stage.
@@ -540,15 +539,14 @@ ${stages!.map(s => `- ${s.label}`).join('\n')}
 Reply ONLY with one stage label exactly as written above. If none clearly fit, reply: unknown.`
       : DEFAULT_STAGE_PROMPT;
 
-    const response = await groq.chat.completions.create({
+    const { data: response } = await chatWithFallback('fast', {
       messages: [
         { role: 'system', content: systemContent },
         ...trimmedHistory,
         { role: 'user', content: userMessage },
       ],
-      model: HANDOFF_MODEL,
       temperature: 0,
-    });
+    }, 'stage_classification');
 
     const latencyMs = Math.round(performance.now() - startTime);
     const raw = response.choices[0]?.message?.content?.trim().toLowerCase() || '';
@@ -566,7 +564,7 @@ Reply ONLY with one stage label exactly as written above. If none clearly fit, r
   } catch (error) {
     const latencyMs = Math.round(performance.now() - startTime);
     Sentry.captureException(error, {
-      tags: { model: HANDOFF_MODEL, provider: 'groq', feature: 'stage_classification' },
+      tags: { feature: 'stage_classification', fallback_chain: 'exhausted' },
     });
     return {
       stage: null,
@@ -585,8 +583,8 @@ export interface LabelClassificationResult {
 }
 
 // AI auto-label (CRM Fase 4): pilih label mana dari daftar kandidat yang jelas
-// relevan dengan percakapan. Pola sama dengan classifyLeadStage: Groq 8B, temp 0,
-// tidak pernah throw. Kandidat = label akun yang di-set ai_enabled oleh user.
+// relevan dengan percakapan. Pola sama dengan classifyLeadStage: tier fast,
+// temp 0, tidak pernah throw. Kandidat = label akun yang di-set ai_enabled.
 export async function classifyLabels(
   history: Message[],
   userMessage: string,
@@ -601,7 +599,7 @@ export async function classifyLabels(
 
   try {
     const labelList = candidates.map(c => `- ${c.name}`).join('\n');
-    const response = await groq.chat.completions.create({
+    const { data: response } = await chatWithFallback('fast', {
       messages: [
         {
           role: 'system',
@@ -616,12 +614,11 @@ Rules:
         ...trimmedHistory,
         { role: 'user', content: userMessage },
       ],
-      model: HANDOFF_MODEL,
       temperature: 0,
-    });
+    }, 'label_classification');
 
     const latencyMs = Math.round(performance.now() - startTime);
-    const raw = response.choices[0]?.message?.content?.trim().toLowerCase() || '';
+    const raw: string = response.choices[0]?.message?.content?.trim().toLowerCase() || '';
 
     let labelIds: string[] = [];
     if (raw && raw !== 'none') {
@@ -640,7 +637,7 @@ Rules:
   } catch (error) {
     const latencyMs = Math.round(performance.now() - startTime);
     Sentry.captureException(error, {
-      tags: { model: HANDOFF_MODEL, provider: 'groq', feature: 'label_classification' },
+      tags: { feature: 'label_classification', fallback_chain: 'exhausted' },
     });
     return {
       labelIds: [],
@@ -659,9 +656,8 @@ export interface FollowupGenerationResult {
 }
 
 // AI-contextual follow-up (CRM Fase 5): susun satu pesan follow-up singkat dari
-// riwayat percakapan, dengan nada mengikuti system prompt bot. Groq 70B untuk
-// kualitas. Tidak pernah throw — pemanggil (cron) jatuh ke template bila null.
-const FOLLOWUP_GEN_MODEL = 'llama-3.3-70b-versatile';
+// riwayat percakapan, dengan nada mengikuti system prompt bot. Tier main (70B)
+// untuk kualitas. Tidak pernah throw — pemanggil (cron) jatuh ke template bila null.
 
 export async function generateFollowupMessage(
   history: Message[],
@@ -680,7 +676,7 @@ export async function generateFollowupMessage(
     : 'Gunakan bahasa Indonesia yang ramah, sopan, dan tidak kaku.';
 
   try {
-    const response = await groq.chat.completions.create({
+    const { data: response } = await chatWithFallback('main', {
       messages: [
         {
           role: 'system',
@@ -696,10 +692,9 @@ Aturan:
         ...trimmedHistory,
         { role: 'user', content: '[Sistem: pelanggan belum membalas. Tulis pesan follow-up sekarang.]' },
       ],
-      model: FOLLOWUP_GEN_MODEL,
       temperature: 0.7,
       max_tokens: 200,
-    });
+    }, 'followup_generation');
 
     const latencyMs = Math.round(performance.now() - startTime);
     const raw = response.choices[0]?.message?.content?.trim() || '';
@@ -716,7 +711,7 @@ Aturan:
   } catch (error) {
     const latencyMs = Math.round(performance.now() - startTime);
     Sentry.captureException(error, {
-      tags: { model: FOLLOWUP_GEN_MODEL, provider: 'groq', feature: 'followup_generation' },
+      tags: { feature: 'followup_generation', fallback_chain: 'exhausted' },
     });
     return {
       message: null,

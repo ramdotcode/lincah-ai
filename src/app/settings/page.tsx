@@ -409,82 +409,21 @@ function SettingsContent() {
                         <Cpu className="w-4 h-4 text-zinc-500" />
                         AI Model Settings
                     </h3>
-                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                        <button 
-                            onClick={() => setBot({...bot, ai_model: 'groq'})}
-                            className={`p-6 rounded-[2rem] border-2 text-left transition-all ${
-                            !['deepseek', 'zai', 'nvidia'].includes(bot.ai_model)
-                            ? 'border-blue-600 bg-blue-50/50 dark:bg-blue-900/10'
-                            : 'border-app bg-card-app hover:border-gray-300'
-                        }`}>
-                            <div className="flex justify-between items-start mb-4">
-                                <span className="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-xl text-blue-600">
-                                    <Zap className="w-4 h-4" />
-                                </span>
-                                {!['deepseek', 'zai', 'nvidia'].includes(bot.ai_model) && <div className="w-4 h-4 rounded-full bg-blue-600 flex items-center justify-center">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
-                                </div>}
+                    <div className="p-6 rounded-[2rem] border-2 border-blue-600 bg-blue-50/50 dark:bg-blue-900/10">
+                        <div className="flex items-center gap-3 mb-3">
+                            <span className="p-2 bg-blue-100 dark:bg-blue-900/40 rounded-xl text-blue-600">
+                                <Zap className="w-4 h-4" />
+                            </span>
+                            <div>
+                                <h4 className="text-sm font-bold text-main">Groq · Llama 3.3 70B</h4>
+                                <p className="text-[10px] text-muted-app">Fallback otomatis: Cerebras → OpenRouter</p>
                             </div>
-                            <h4 className="text-sm font-bold text-main">Groq</h4>
-                            <p className="text-[10px] text-muted-app mt-1">Llama 3.3 70B · tercepat (±2 dtk)</p>
-                        </button>
-
-                        <button 
-                            onClick={() => setBot({...bot, ai_model: 'deepseek'})}
-                            className={`p-6 rounded-[2rem] border-2 text-left transition-all ${
-                            bot.ai_model === 'deepseek' 
-                            ? 'border-purple-600 bg-purple-50/50 dark:bg-purple-900/10' 
-                            : 'border-app bg-card-app hover:border-gray-300'
-                        }`}>
-                            <div className="flex justify-between items-start mb-4">
-                                <span className="p-2 bg-purple-100 dark:bg-purple-900/40 rounded-xl text-purple-600">
-                                    <Sparkles className="w-4 h-4" />
-                                </span>
-                                {bot.ai_model === 'deepseek' && <div className="w-4 h-4 rounded-full bg-purple-600 flex items-center justify-center">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
-                                </div>}
-                            </div>
-                            <h4 className="text-sm font-bold text-main">DeepSeek</h4>
-                            <p className="text-[10px] text-muted-app mt-1">v4 Flash · reasoning, lambat (±10 dtk)</p>
-                        </button>
-
-                        <button 
-                            onClick={() => setBot({...bot, ai_model: 'zai'})}
-                            className={`p-6 rounded-[2rem] border-2 text-left transition-all ${
-                            bot.ai_model === 'zai' 
-                            ? 'border-orange-600 bg-orange-50/50 dark:bg-orange-900/10' 
-                            : 'border-app bg-card-app hover:border-gray-300'
-                        }`}>
-                            <div className="flex justify-between items-start mb-4">
-                                <span className="p-2 bg-orange-100 dark:bg-orange-900/40 rounded-xl text-orange-600">
-                                    <Zap className="w-4 h-4" />
-                                </span>
-                                {bot.ai_model === 'zai' && <div className="w-4 h-4 rounded-full bg-orange-600 flex items-center justify-center">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
-                                </div>}
-                            </div>
-                            <h4 className="text-sm font-bold text-main">Z.AI</h4>
-                            <p className="text-[10px] text-muted-app mt-1">GLM 5.2 · seimbang (±5 dtk)</p>
-                        </button>
-
-                        <button 
-                            onClick={() => setBot({...bot, ai_model: 'nvidia'})}
-                            className={`p-6 rounded-[2rem] border-2 text-left transition-all ${
-                            bot.ai_model === 'nvidia' 
-                            ? 'border-green-600 bg-green-50/50 dark:bg-green-900/10' 
-                            : 'border-app bg-card-app hover:border-gray-300'
-                        }`}>
-                            <div className="flex justify-between items-start mb-4">
-                                <span className="p-2 bg-green-100 dark:bg-green-900/40 rounded-xl text-green-600">
-                                    <Zap className="w-4 h-4" />
-                                </span>
-                                {bot.ai_model === 'nvidia' && <div className="w-4 h-4 rounded-full bg-green-600 flex items-center justify-center">
-                                    <div className="w-1.5 h-1.5 rounded-full bg-white"></div>
-                                </div>}
-                            </div>
-                            <h4 className="text-sm font-bold text-main">Nvidia</h4>
-                            <p className="text-[10px] text-muted-app mt-1">Nemotron 550B · paling pintar (±5-15 dtk)</p>
-                        </button>
+                        </div>
+                        <p className="text-[10px] text-muted-app leading-relaxed">
+                            Semua balasan diproses lewat Groq (tercepat, ±2 dtk). Kalau kuota atau
+                            rate limit Groq habis, sistem otomatis pindah ke Cerebras lalu OpenRouter
+                            tanpa perlu setting apa pun — bot tetap membalas.
+                        </p>
                     </div>
                 </div>
                 
