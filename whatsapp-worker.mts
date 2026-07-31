@@ -243,7 +243,10 @@ async function startSession(botId: string) {
             const replies: string[] = Array.isArray(data.replies) && data.replies.length
                 ? data.replies
                 : data.reply ? [data.reply] : [];
-            if (replies.length) {
+            // Lampiran dari tool AI (mis. gambar QR QRIS): { url, caption? }
+            const media: Array<{ url: string; caption?: string }> =
+                Array.isArray(data.media) ? data.media.filter((m: any) => m?.url) : [];
+            if (replies.length || media.length) {
                 try {
                     for (let i = 0; i < replies.length; i++) {
                         if (i > 0) {
@@ -251,6 +254,13 @@ async function startSession(botId: string) {
                             await new Promise((r) => setTimeout(r, 1200 + Math.random() * 1300));
                         }
                         await sock.sendMessage(remoteJid, { text: replies[i] });
+                    }
+                    for (const item of media) {
+                        await new Promise((r) => setTimeout(r, 1200 + Math.random() * 1300));
+                        await sock.sendMessage(remoteJid, {
+                            image: { url: item.url },
+                            caption: item.caption || undefined,
+                        });
                     }
                 } catch (sendError) {
                     Sentry.captureException(sendError, {

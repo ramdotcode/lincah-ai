@@ -218,7 +218,7 @@ export async function POST(req: NextRequest) {
     if (bot.tools_enabled) {
       const tools = await fetchBotTools(bot.id);
       if (tools.length > 0) {
-        toolContext = { botId: bot.id, conversationId: conv.id, customerContact: chatId, contactId: conv.contact_id ?? null, tools };
+        toolContext = { botId: bot.id, conversationId: conv.id, customerContact: chatId, contactId: conv.contact_id ?? null, channel: 'telegram', tools };
       }
     }
 

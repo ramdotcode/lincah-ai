@@ -4,20 +4,31 @@ import {
   BotTool,
   parseOrderArgs,
   parseContactArgs,
+  parsePaymentArgs,
   searchProducts,
   findShippingRate,
   formatStockResult,
   formatShippingResult,
 } from '@/lib/toolDefs';
+import { createQrisQr, appBaseUrl, formatRupiah } from '@/lib/xendit';
 
 export type { BotTool } from '@/lib/toolDefs';
 export { buildToolSchemas } from '@/lib/toolDefs';
+
+// Lampiran (gambar QR, dst.) yang dihasilkan tool untuk dikirim ke pelanggan
+// setelah bubble teks — diisi executor, dibaca route webhook per channel.
+export interface ToolMedia {
+  url: string;
+  caption?: string;
+}
 
 export interface ToolContext {
   botId: string;
   conversationId: string | null;
   customerContact: string | null; // chat_id (nomor WA / telegram id / session widget)
   contactId?: string | null; // CRM contact yang tertaut ke percakapan (Fase CRM 1)
+  channel?: 'whatsapp' | 'telegram' | 'widget';
+  media?: ToolMedia[]; // caller menyediakan array kosong bila channel-nya bisa mengirim media
   tools: BotTool[];
 }
 
@@ -133,6 +144,80 @@ export async function executeTool(
         }
 
         return `Data kontak tersimpan (${savedFields.join(', ')}). Lanjutkan percakapan tanpa mengumumkan hal ini ke pelanggan.`;
+      }
+
+      case 'create_payment': {
+        const { payment, error } = parsePaymentArgs(args);
+        if (!payment) return `Pembayaran belum bisa dibuat: ${error}`;
+
+        const secretKey =
+          (typeof tool.config?.secret_key === 'string' && tool.config.secret_key.trim()) ||
+          process.env.XENDIT_SECRET_KEY;
+        if (!secretKey) {
+          return 'Integrasi pembayaran belum dikonfigurasi (API key Xendit kosong). Sampaikan ke pelanggan bahwa admin akan mengirim detail pembayaran secara manual.';
+        }
+
+        const expiryMinutes =
+          Number(tool.config?.expiry_minutes) > 0 ? Math.round(Number(tool.config.expiry_minutes)) : 30;
+
+        // Baris pending dulu — id-nya jadi reference_id Xendit sekaligus URL gambar QR
+        const { data: payRow, error: insertError } = await supabaseAdmin
+          .from('payments')
+          .insert({
+            bot_id: ctx.botId,
+            conversation_id: ctx.conversationId,
+            customer_contact: ctx.customerContact,
+            provider: 'xendit',
+            amount: payment.amount,
+            description: payment.description,
+            status: 'pending',
+          })
+          .select('id')
+          .single();
+
+        if (insertError || !payRow) {
+          return 'Terjadi kendala teknis saat menyiapkan pembayaran. Sampaikan ke pelanggan bahwa admin akan mengirim detail pembayaran secara manual.';
+        }
+
+        try {
+          const qr = await createQrisQr({
+            secretKey,
+            referenceId: payRow.id,
+            amount: payment.amount,
+            expiresAt: new Date(Date.now() + expiryMinutes * 60_000).toISOString(),
+          });
+
+          await supabaseAdmin
+            .from('payments')
+            .update({
+              external_id: qr.id,
+              qr_string: qr.qr_string,
+              expires_at: qr.expires_at || null,
+              updated_at: new Date().toISOString(),
+            })
+            .eq('id', payRow.id);
+
+          const amountText = formatRupiah(payment.amount);
+          const qrUrl = `${appBaseUrl()}/api/payments/${payRow.id}/qr`;
+          const descPart = payment.description ? ` — ${payment.description}` : '';
+
+          if (ctx.media) {
+            ctx.media.push({
+              url: qrUrl,
+              caption: `QRIS ${amountText}${descPart}. Berlaku ${expiryMinutes} menit.`,
+            });
+            return `QR QRIS sebesar ${amountText} berhasil dibuat dan gambarnya OTOMATIS terkirim ke pelanggan setelah balasanmu. Beri tahu pelanggan: scan QR tersebut dengan e-wallet/mobile banking apa pun, berlaku ${expiryMinutes} menit, dan konfirmasi otomatis dikirim setelah pembayaran diterima. JANGAN menulis link atau mengarang nomor pembayaran.`;
+          }
+
+          return `QR QRIS sebesar ${amountText} berhasil dibuat. Bagikan link gambar QR ini ke pelanggan: ${qrUrl} (berlaku ${expiryMinutes} menit). Konfirmasi otomatis dikirim setelah pembayaran diterima.`;
+        } catch (error) {
+          console.error('[Tools] create_payment Xendit error:', error);
+          await supabaseAdmin
+            .from('payments')
+            .update({ status: 'failed', updated_at: new Date().toISOString() })
+            .eq('id', payRow.id);
+          return 'Pembuatan QR pembayaran gagal. Sampaikan ke pelanggan bahwa admin akan mengirim detail pembayaran secara manual.';
+        }
       }
 
       default:

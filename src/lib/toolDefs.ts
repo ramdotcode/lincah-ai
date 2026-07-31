@@ -1,7 +1,7 @@
 // Definisi & logika tool use (Fase D) — pure function tanpa I/O agar mudah dites.
 // Eksekusi yang butuh DB/API eksternal ada di tools.ts.
 
-export type ToolType = 'check_stock' | 'check_shipping' | 'create_order' | 'update_contact';
+export type ToolType = 'check_stock' | 'check_shipping' | 'create_order' | 'update_contact' | 'create_payment';
 
 export interface BotTool {
   id: string;
@@ -115,6 +115,28 @@ const TOOL_SCHEMAS: Record<ToolType, any> = {
       },
     },
   },
+  create_payment: {
+    type: 'function',
+    function: {
+      name: 'create_payment',
+      description:
+        'Buat QR code pembayaran QRIS untuk pelanggan. Gunakan HANYA setelah pelanggan setuju membeli dan total harga sudah dikonfirmasi. Hitung total dari harga produk yang kamu ketahui (jangan mengarang nominal), sebutkan totalnya ke pelanggan dulu, baru panggil tool ini.',
+      parameters: {
+        type: 'object',
+        properties: {
+          amount: {
+            type: 'number',
+            description: 'Total tagihan dalam Rupiah (angka bulat, tanpa titik/koma), mis. 150000',
+          },
+          description: {
+            type: 'string',
+            description: 'Ringkasan singkat yang dibayar, mis. "Kaos Polos Hitam x2" (opsional)',
+          },
+        },
+        required: ['amount'],
+      },
+    },
+  },
 };
 
 // Susun daftar skema tools untuk dikirim ke model, dari baris bot_tools yang aktif
@@ -201,6 +223,34 @@ export function parseOrderArgs(args: any): { order: ParsedOrder | null; error?: 
       notes: typeof args.notes === 'string' && args.notes.trim() ? args.notes.trim() : null,
     },
   };
+}
+
+// --- create_payment: validasi argumen dari model sebelum bikin QR di Xendit ---
+export interface ParsedPayment {
+  amount: number;       // Rupiah, dibulatkan ke angka bulat
+  description: string | null;
+}
+
+const PAYMENT_MIN_AMOUNT = 1000;        // di bawah ini hampir pasti halusinasi/salah ketik
+const PAYMENT_MAX_AMOUNT = 100_000_000; // batas wajar satu transaksi QRIS
+const PAYMENT_DESC_MAX = 200;
+
+export function parsePaymentArgs(args: any): { payment: ParsedPayment | null; error?: string } {
+  if (!args || typeof args !== 'object') return { payment: null, error: 'Argumen pembayaran kosong.' };
+
+  const amount = Math.round(Number(args.amount));
+  if (!Number.isFinite(amount) || amount < PAYMENT_MIN_AMOUNT) {
+    return { payment: null, error: `amount minimal ${PAYMENT_MIN_AMOUNT} (Rupiah, angka bulat).` };
+  }
+  if (amount > PAYMENT_MAX_AMOUNT) {
+    return { payment: null, error: 'amount melebihi batas maksimal transaksi.' };
+  }
+
+  const description = typeof args.description === 'string' && args.description.trim()
+    ? args.description.trim().slice(0, PAYMENT_DESC_MAX)
+    : null;
+
+  return { payment: { amount, description } };
 }
 
 // --- update_contact: validasi argumen dari model sebelum ditulis ke DB ---

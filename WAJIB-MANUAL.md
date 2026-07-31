@@ -19,6 +19,7 @@ Daftar langkah yang **tidak otomatis** ikut deploy — harus dijalankan tangan s
 | `supabase/migrations/0024_add_pipeline_stages.sql` | Tabel `pipeline_stages` — stage pipeline custom per akun (CRM Fase 7) | ✅ sudah (14 Jul 2026) |
 | `supabase/migrations/0025_add_followup_labels.sql` | Kolom `bots.followup_label_ids` — trigger follow-up by label (CRM Fase 8) | ✅ sudah (14 Jul 2026) |
 | `supabase/migrations/0026_add_deal_value.sql` | Kolom `conversations.deal_value` — nilai deal & forecast (CRM Fase 9) | ✅ sudah (14 Jul 2026) |
+| `supabase/migrations/0027_add_qris_payments.sql` | Tabel `payments` + izinkan tool `create_payment` (QRIS Xendit) | ⬜ belum |
 
 Setelah menjalankan migrasi yang menambah kolom/tabel baru, kalau API mengeluh kolom tidak dikenal, jalankan sekali di SQL Editor:
 ```sql
@@ -36,6 +37,9 @@ notify pgrst, 'reload schema';
 | Tambah crontab di VPS: `*/20 * * * * curl -s -o /dev/null -H "Authorization: Bearer <CRON_SECRET>" https://lincah-ai.vercel.app/api/cron/followups` | Follow-up tiap 20 menit — Vercel Hobby melarang cron <1x/hari, jadi `vercel.json` diturunkan ke 1x/hari (cadangan) dan pemicu utama pindah ke VPS | ✅ sudah (15 Jul 2026 — terverifikasi jalan, balas `{"ok":true}`) |
 | Env Vercel: `CRON_SECRET` (baru dibuat) + `WHATSAPP_BRIDGE_URL=http://43.157.248.134:3001` | Auth endpoint cron + app bisa kirim WA outbound (balasan manual, follow-up, status bridge) | ✅ sudah (15 Jul 2026 + redeploy) |
 | Env Vercel: `CEREBRAS_API_KEY` (daftar gratis di cloud.cerebras.ai) + `OPENROUTER_API_KEY` (daftar di openrouter.ai) lalu redeploy | Rantai fallback AI Groq → Cerebras → OpenRouter saat kuota/rate limit Groq habis. Tanpa key, provider itu otomatis dilewati (bot tetap jalan pakai Groq saja). `NVIDIA_NIM_API_KEY` tidak dipakai lagi, boleh dihapus | ⬜ belum |
+| Daftar akun Xendit (dashboard.xendit.co) → ambil **Test secret key** (`xnd_development_...`) → isi di UI AI Tools bot (atau env Vercel `XENDIT_SECRET_KEY`) | Tool `create_payment` (QRIS) bisa membuat QR di mode test | ✅ sudah (31 Jul 2026) |
+| Xendit Dashboard → Settings → Webhooks → isi URL **QR code** = `https://lincah-ai.vercel.app/api/webhook/xendit`, lalu copy **verification token** ke env Vercel `XENDIT_CALLBACK_TOKEN` + redeploy | Konfirmasi pembayaran otomatis (status `paid` + pesan "pembayaran diterima" ke pelanggan) | ✅ sudah (31 Jul 2026) |
+| Deploy ulang `whatsapp-worker.mts` di VPS (`git pull` + `pm2 restart wa-worker`) | Worker bisa mengirim gambar QR (`media[]` di respons webhook) | ⬜ belum |
 
 ## Cara update file ini
 

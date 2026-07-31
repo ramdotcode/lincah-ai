@@ -4,7 +4,7 @@ import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { invalidateCache, cacheKeys } from '@/lib/cache';
 
-const TOOL_TYPES = ['check_stock', 'check_shipping', 'create_order', 'update_contact'];
+const TOOL_TYPES = ['check_stock', 'check_shipping', 'create_order', 'update_contact', 'create_payment'];
 
 async function getSupabase() {
   const cookieStore = await cookies();

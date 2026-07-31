@@ -244,7 +244,7 @@ export async function POST(req: NextRequest) {
     if (bot.tools_enabled) {
       const tools = await fetchBotTools(bot.id);
       if (tools.length > 0) {
-        toolContext = { botId: bot.id, conversationId: conv.id, customerContact: from, contactId: conv.contact_id ?? null, tools };
+        toolContext = { botId: bot.id, conversationId: conv.id, customerContact: from, contactId: conv.contact_id ?? null, channel: 'whatsapp', media: [], tools };
       }
     }
 
@@ -320,7 +320,12 @@ export async function POST(req: NextRequest) {
     // 8. Return reply to bridge (which will send via WhatsApp).
     // `replies` = balasan terpecah per bubble (worker baru mengirim berurutan);
     // `reply` dipertahankan untuk worker lama (teks bersih tergabung).
-    return NextResponse.json({ reply: aiResult.aiResponse, replies: aiResult.bubbles });
+    // `media` = lampiran dari tool (mis. QR QRIS) — dikirim worker setelah teks.
+    return NextResponse.json({
+      reply: aiResult.aiResponse,
+      replies: aiResult.bubbles,
+      ...(toolContext?.media?.length ? { media: toolContext.media } : {}),
+    });
   } catch (error: any) {
     console.error('WhatsApp Webhook Error:', error);
 

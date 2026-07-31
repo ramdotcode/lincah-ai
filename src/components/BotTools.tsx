@@ -1,11 +1,11 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { Wrench, Package, Truck, ClipboardList, Loader2, Plus, Trash2, Zap, UserPlus } from 'lucide-react';
+import { Wrench, Package, Truck, ClipboardList, Loader2, Plus, Trash2, Zap, UserPlus, QrCode } from 'lucide-react';
 
 interface ToolRow {
   id?: string;
-  tool_type: 'check_stock' | 'check_shipping' | 'create_order' | 'update_contact';
+  tool_type: 'check_stock' | 'check_shipping' | 'create_order' | 'update_contact' | 'create_payment';
   enabled: boolean;
   config: Record<string, any>;
 }
@@ -15,6 +15,7 @@ const DEFAULT_TOOLS: ToolRow[] = [
   { tool_type: 'check_shipping', enabled: false, config: { rates: [] } },
   { tool_type: 'create_order', enabled: false, config: {} },
   { tool_type: 'update_contact', enabled: false, config: {} },
+  { tool_type: 'create_payment', enabled: false, config: { secret_key: '', expiry_minutes: 30 } },
 ];
 
 const TOOL_META = {
@@ -45,6 +46,13 @@ const TOOL_META = {
     desc: 'AI otomatis menyimpan nama, email, telepon, dan kebutuhan pelanggan ke halaman Contacts.',
     color: 'text-violet-500',
     bg: 'bg-violet-500/10',
+  },
+  create_payment: {
+    icon: QrCode,
+    title: 'Pembayaran QRIS (Xendit)',
+    desc: 'AI membuat & mengirim QR QRIS setelah pelanggan setuju membeli; status lunas otomatis via webhook Xendit.',
+    color: 'text-rose-500',
+    bg: 'bg-rose-500/10',
   },
 };
 
@@ -98,6 +106,14 @@ export default function BotTools({
 
   const updateLocal = (toolType: string, patch: Partial<ToolRow>) => {
     setTools(prev => prev.map(t => (t.tool_type === toolType ? { ...t, ...patch } : t)));
+  };
+
+  const updateConfigField = (toolType: string, key: string, value: any) => {
+    setTools(prev =>
+      prev.map(t =>
+        t.tool_type === toolType ? { ...t, config: { ...t.config, [key]: value } } : t
+      )
+    );
   };
 
   const updateConfigRows = (toolType: string, key: 'products' | 'rates', rows: any[]) => {
@@ -268,6 +284,31 @@ export default function BotTools({
               <p className="text-[10px] text-muted-app pt-3 border-t border-app">
                 Pesanan yang dicatat AI muncul di halaman <span className="font-bold">Orders</span>. AI diminta konfirmasi dulu ke pelanggan sebelum mencatat.
               </p>
+            )}
+
+            {tool.tool_type === 'create_payment' && tool.enabled && (
+              <div className="space-y-3 pt-3 border-t border-app">
+                <div className="space-y-1">
+                  <label className="text-[9px] uppercase font-bold text-muted-app tracking-widest px-1">Xendit Secret Key</label>
+                  <input type="password" value={tool.config.secret_key || ''} placeholder="xnd_development_..."
+                    onChange={(e) => updateConfigField('create_payment', 'secret_key', e.target.value)}
+                    className="w-full bg-white dark:bg-zinc-900 border border-app rounded-lg px-3 py-2 text-xs text-main outline-none focus:border-rose-400" />
+                  <p className="text-[10px] text-muted-app px-1">
+                    Mode test pakai key <span className="font-mono">xnd_development_...</span> dari dashboard Xendit. Kosongkan untuk memakai key global server (<span className="font-mono">XENDIT_SECRET_KEY</span>).
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <label className="text-[9px] uppercase font-bold text-muted-app tracking-widest px-1">Masa berlaku QR (menit)</label>
+                  <input value={tool.config.expiry_minutes ?? 30} placeholder="30"
+                    onChange={(e) => updateConfigField('create_payment', 'expiry_minutes', e.target.value)}
+                    className="w-24 bg-white dark:bg-zinc-900 border border-app rounded-lg px-3 py-2 text-xs text-main outline-none focus:border-rose-400" />
+                </div>
+                <p className="text-[10px] text-muted-app">
+                  Supaya status lunas otomatis, set webhook <span className="font-bold">QR code</span> di Xendit Dashboard → Settings → Webhooks ke{' '}
+                  <span className="font-mono break-all">{typeof window !== 'undefined' ? `${window.location.origin}/api/webhook/xendit` : '/api/webhook/xendit'}</span>{' '}
+                  dan isi env <span className="font-mono">XENDIT_CALLBACK_TOKEN</span> dengan verification token dari halaman yang sama.
+                </p>
+              </div>
             )}
 
             {tool.tool_type === 'update_contact' && tool.enabled && (

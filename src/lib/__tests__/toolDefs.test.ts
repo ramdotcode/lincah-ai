@@ -5,6 +5,7 @@ import {
   findShippingRate,
   parseOrderArgs,
   parseContactArgs,
+  parsePaymentArgs,
   formatStockResult,
   formatShippingResult,
   BotTool,
@@ -170,5 +171,42 @@ describe('parseContactArgs', () => {
   it('ignores non-string values', () => {
     const { fields } = parseContactArgs({ name: 123, email: 'x@y.com' });
     expect(fields).toEqual({ email: 'x@y.com' });
+  });
+});
+
+describe('parsePaymentArgs', () => {
+  it('accepts a valid amount and rounds to whole rupiah', () => {
+    const { payment } = parsePaymentArgs({ amount: 150000.4, description: 'Kaos x2' });
+    expect(payment).toEqual({ amount: 150000, description: 'Kaos x2' });
+  });
+
+  it('accepts amount without description', () => {
+    const { payment } = parsePaymentArgs({ amount: 25000 });
+    expect(payment).toEqual({ amount: 25000, description: null });
+  });
+
+  it('rejects missing, tiny, or absurd amounts', () => {
+    expect(parsePaymentArgs({}).payment).toBeNull();
+    expect(parsePaymentArgs({ amount: 0 }).payment).toBeNull();
+    expect(parsePaymentArgs({ amount: 500 }).payment).toBeNull();
+    expect(parsePaymentArgs({ amount: 200_000_000 }).payment).toBeNull();
+    expect(parsePaymentArgs({ amount: 'abc' }).payment).toBeNull();
+  });
+
+  it('rejects null/garbage args', () => {
+    expect(parsePaymentArgs(null).payment).toBeNull();
+    expect(parsePaymentArgs('x').payment).toBeNull();
+  });
+
+  it('trims and caps description at 200 chars', () => {
+    const { payment } = parsePaymentArgs({ amount: 10000, description: `  ${'x'.repeat(300)}  ` });
+    expect(payment?.description).toHaveLength(200);
+  });
+});
+
+describe('buildToolSchemas with create_payment', () => {
+  it('includes create_payment when enabled', () => {
+    const schemas = buildToolSchemas([tool('create_payment')]);
+    expect(schemas.map(s => s.function.name)).toEqual(['create_payment']);
   });
 });
