@@ -510,12 +510,41 @@ export interface StageClassificationResult {
 
 const LEAD_STAGES = ['new', 'interested', 'negotiating', 'won', 'lost'];
 
-const DEFAULT_STAGE_PROMPT = `You are a sales pipeline classifier for a customer service bot. Based on the conversation, classify the customer's buying stage.
+// Model tier 'fast' (8B/3B) sering keluar dari perannya kalau history dikirim
+// sebagai chat turns — dia ikut jadi CS dan MEMBALAS pelanggan, bukan
+// mengklasifikasi. Transkrip dijadikan SATU pesan user supaya modelnya tetap
+// di peran classifier.
+function transcriptBlock(history: Message[], userMessage: string): string {
+  const lines = history
+    .filter(m => m.role !== 'system')
+    .map(m => `${m.role === 'assistant' ? 'Bot' : 'Customer'}: ${m.content}`);
+  lines.push(`Customer: ${userMessage}`);
+  return lines.join('\n');
+}
+
+// Cocokkan output model ke salah satu opsi. Toleran terhadap tanda baca/kutip
+// dan prefiks singkat ("stage: won"), tapi menolak jawaban panjang — kalimat
+// balasan ke pelanggan tidak boleh lolos hanya karena memuat kata stage-nya.
+function matchOption<T>(raw: string, options: T[], labelOf: (o: T) => string): T | null {
+  const norm = raw.toLowerCase().replace(/[^a-z0-9\s-]/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!norm || norm.length > 40) return null;
+  const exact = options.find(o => norm === labelOf(o).toLowerCase());
+  if (exact) return exact;
+  return (
+    options.find(o => {
+      const label = labelOf(o).toLowerCase().trim();
+      if (!label) return false;
+      return norm.startsWith(label + ' ') || norm.endsWith(' ' + label) || norm.includes(' ' + label + ' ');
+    }) || null
+  );
+}
+
+const DEFAULT_STAGE_PROMPT = `You are a sales pipeline classifier. You never talk to the customer and never write a reply — you only output a label.
 Stages:
 - new: just started, greeting, or asking generic questions
 - interested: asking about products, prices, availability, or showing buying interest
 - negotiating: discussing discounts, payment terms, delivery, or comparing options seriously
-- won: confirmed purchase, paid, or committed to buy
+- won: confirmed the order, agreed to buy, asked where/how to pay, or already paid
 - lost: explicitly declined, not interested, or bought elsewhere
 Reply ONLY with one word: new, interested, negotiating, won, or lost.`;
 
@@ -534,25 +563,32 @@ export async function classifyLeadStage(
 
   try {
     const systemContent = useCustom
-      ? `You are a sales pipeline classifier for a customer service bot. Based on the conversation, classify the customer's current stage into exactly one of these:
+      ? `You are a sales pipeline classifier. You never talk to the customer and never write a reply — you only output a label. Classify the customer's current stage into exactly one of these:
 ${stages!.map(s => `- ${s.label}`).join('\n')}
 Reply ONLY with one stage label exactly as written above. If none clearly fit, reply: unknown.`
       : DEFAULT_STAGE_PROMPT;
 
+    const instruction = useCustom
+      ? 'Which stage is the customer in? Reply with ONE stage label only, exactly as written in the list above. No sentences, no explanation.'
+      : 'Which stage is the customer in? Reply with ONE word only: new, interested, negotiating, won, or lost. No sentences, no explanation.';
+
     const { data: response } = await chatWithFallback('fast', {
       messages: [
         { role: 'system', content: systemContent },
-        ...trimmedHistory,
-        { role: 'user', content: userMessage },
+        {
+          role: 'user',
+          content: `Conversation transcript:\n"""\n${transcriptBlock(trimmedHistory, userMessage)}\n"""\n\n${instruction}`,
+        },
       ],
       temperature: 0,
+      max_tokens: 12,
     }, 'stage_classification');
 
     const latencyMs = Math.round(performance.now() - startTime);
     const raw = response.choices[0]?.message?.content?.trim().toLowerCase() || '';
     const stage = useCustom
-      ? (stages!.find(s => raw === s.label.toLowerCase() || raw.startsWith(s.label.toLowerCase()))?.key || null)
-      : (LEAD_STAGES.find(s => raw === s || raw.startsWith(s)) || null);
+      ? (matchOption(raw, stages!, s => s.label)?.key || null)
+      : matchOption(raw, LEAD_STAGES, s => s);
 
     return {
       stage,
