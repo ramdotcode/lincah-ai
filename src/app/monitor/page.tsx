@@ -10,7 +10,9 @@ import {
   RefreshCw,
   MoreVertical,
   MessageSquare,
-  Circle
+  Circle,
+  RotateCcw,
+  AlertTriangle
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import ConversationLabels, { Label, LABEL_STYLE } from '@/components/ConversationLabels';
@@ -25,6 +27,9 @@ export default function MonitorPage() {
   const [loading, setLoading] = useState(true);
   const [allLabels, setAllLabels] = useState<Label[]>([]);
   const [filterLabelId, setFilterLabelId] = useState<string>('');
+  const [resetOpen, setResetOpen] = useState(false);
+  const [resetCrm, setResetCrm] = useState(true);
+  const [resetting, setResetting] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const fetchConversations = async () => {
@@ -100,6 +105,33 @@ export default function MonitorPage() {
       }
     } finally {
       setSending(false);
+    }
+  };
+
+  // Restart percakapan ini saja: history dikosongkan supaya AI mulai dari nol.
+  // Opsional sekalian membersihkan jejak CRM-nya (stage, label, order, ticket).
+  const handleReset = async () => {
+    if (!selectedConv) return;
+    setResetting(true);
+    try {
+      const res = await fetch('/api/conversations/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: selectedConv.id, resetCrm }),
+      });
+      if (res.ok) {
+        setSelectedConv({
+          ...selectedConv,
+          history: [],
+          status: 'active',
+          ...(resetCrm ? { stage: 'new', labels: [] } : {}),
+        });
+        setSuggestion('');
+        setResetOpen(false);
+        fetchConversations();
+      }
+    } finally {
+      setResetting(false);
     }
   };
 
@@ -260,6 +292,14 @@ export default function MonitorPage() {
                                     Switch to Manual
                                 </button>
                             )}
+                            <button
+                                onClick={() => setResetOpen(true)}
+                                title="Restart chat — kosongkan history supaya AI mulai dari awal"
+                                className="px-3 py-1.5 bg-muted hover:bg-red-500/10 text-muted-app hover:text-red-500 rounded-lg text-[10px] font-bold transition-all border border-app flex items-center gap-1.5"
+                            >
+                                <RotateCcw className="w-3 h-3" />
+                                Restart
+                            </button>
                         </div>
                     </div>
 
@@ -427,6 +467,75 @@ export default function MonitorPage() {
             )}
           </AnimatePresence>
         </div>
+
+        {/* Konfirmasi restart — aksi ini tidak bisa dibatalkan */}
+        <AnimatePresence>
+          {resetOpen && selectedConv && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+              onClick={() => !resetting && setResetOpen(false)}
+            >
+              <motion.div
+                initial={{ opacity: 0, scale: 0.96, y: 8 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.96, y: 8 }}
+                onClick={(e) => e.stopPropagation()}
+                className="w-full max-w-sm bg-card-app border border-app rounded-2xl shadow-2xl p-5 space-y-4"
+              >
+                <div className="flex items-start gap-3">
+                  <div className="w-9 h-9 rounded-xl bg-red-500/10 flex items-center justify-center flex-shrink-0">
+                    <AlertTriangle className="w-4 h-4 text-red-500" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-main">Restart chat {selectedConv.name}?</h3>
+                    <p className="text-[11px] text-muted-app leading-relaxed mt-1">
+                      Seluruh history percakapan ini dihapus dan AI mulai dari awal lagi.
+                      Percakapan lain tidak terpengaruh.
+                    </p>
+                  </div>
+                </div>
+
+                <label className="flex items-start gap-2.5 p-3 bg-muted/50 rounded-xl cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={resetCrm}
+                    onChange={(e) => setResetCrm(e.target.checked)}
+                    className="mt-0.5 accent-red-500"
+                  />
+                  <span className="text-[11px] text-main leading-relaxed">
+                    <span className="font-bold">Reset CRM juga</span>
+                    <span className="block text-muted-app">
+                      Stage balik ke New, label/order/ticket/follow-up percakapan ini dihapus,
+                      dan data kontak isian AI (email, company, address, notes, tags) dikosongkan.
+                      Nama & nomor kontak tetap.
+                    </span>
+                  </span>
+                </label>
+
+                <div className="flex gap-2 justify-end">
+                  <button
+                    onClick={() => setResetOpen(false)}
+                    disabled={resetting}
+                    className="px-3 py-2 text-[11px] font-bold text-muted-app hover:text-main rounded-lg transition-colors"
+                  >
+                    Batal
+                  </button>
+                  <button
+                    onClick={handleReset}
+                    disabled={resetting}
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 disabled:bg-red-300 text-white text-[11px] font-bold rounded-lg flex items-center gap-2 transition-all"
+                  >
+                    {resetting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}
+                    Restart
+                  </button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </LayoutShell>
   );
