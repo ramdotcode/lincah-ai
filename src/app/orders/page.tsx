@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from 'react';
 import LayoutShell from '@/components/LayoutShell';
-import { ClipboardList, Loader2, RefreshCw } from 'lucide-react';
+import { ClipboardList, Loader2, RefreshCw, QrCode, CheckCircle2, Clock } from 'lucide-react';
 
 interface Order {
   id: string;
   bot_id: string;
   bot_name: string;
+  conversation_id: string | null;
   customer_name: string | null;
   customer_contact: string | null;
   items: { name: string; qty: number }[];
@@ -16,6 +17,26 @@ interface Order {
   status: string;
   created_at: string;
 }
+
+interface Payment {
+  id: string;
+  conversation_id: string | null;
+  amount: number;
+  status: string;
+  paid_at: string | null;
+  created_at: string;
+}
+
+interface OrderStats {
+  totalOrders: number;
+  byStatus: Record<string, number>;
+  paidCount: number;
+  paidTotal: number;
+  pendingCount: number;
+  pendingTotal: number;
+}
+
+const rupiah = (n: number) => `Rp${Math.round(n).toLocaleString('id-ID')}`;
 
 const STATUSES = ['new', 'confirmed', 'paid', 'shipped', 'done', 'cancelled'];
 
@@ -30,16 +51,35 @@ const STATUS_STYLE: Record<string, string> = {
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [stats, setStats] = useState<OrderStats | null>(null);
   const [loading, setLoading] = useState(true);
 
   const fetchOrders = async () => {
     setLoading(true);
     try {
       const res = await fetch('/api/orders');
-      if (res.ok) setOrders(await res.json());
+      if (res.ok) {
+        const data = await res.json();
+        // Bentuk lama = array polos; bentuk baru = { orders, payments, stats }
+        if (Array.isArray(data)) {
+          setOrders(data);
+        } else {
+          setOrders(data.orders || []);
+          setPayments(data.payments || []);
+          setStats(data.stats || null);
+        }
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  // Pembayaran terbaru untuk percakapan yang sama dengan order (payments
+  // belum tertaut langsung ke order, jadi dicocokkan via conversation_id)
+  const paymentForOrder = (order: Order): Payment | null => {
+    if (!order.conversation_id) return null;
+    return payments.find(p => p.conversation_id === order.conversation_id) || null;
   };
 
   useEffect(() => {
@@ -76,6 +116,49 @@ export default function OrdersPage() {
           </button>
         </div>
 
+        {!loading && stats && (
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="bg-card-app border border-app rounded-2xl p-5 shadow-sm">
+              <div className="flex items-center gap-2 text-muted-app">
+                <ClipboardList className="w-3.5 h-3.5" />
+                <span className="text-[10px] uppercase font-bold tracking-widest">Total Pesanan</span>
+              </div>
+              <p className="text-2xl font-bold text-main mt-2">{stats.totalOrders}</p>
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {STATUSES.filter(s => stats.byStatus[s]).map(s => (
+                  <span key={s} className={`text-[9px] font-bold rounded-full px-2 py-0.5 ${STATUS_STYLE[s] || ''}`}>
+                    {s} {stats.byStatus[s]}
+                  </span>
+                ))}
+              </div>
+            </div>
+            <div className="bg-card-app border border-app rounded-2xl p-5 shadow-sm">
+              <div className="flex items-center gap-2 text-emerald-600">
+                <CheckCircle2 className="w-3.5 h-3.5" />
+                <span className="text-[10px] uppercase font-bold tracking-widest">Pembayaran Diterima</span>
+              </div>
+              <p className="text-2xl font-bold text-main mt-2">{rupiah(stats.paidTotal)}</p>
+              <p className="text-[10px] text-muted-app mt-1">{stats.paidCount} pembayaran lunas</p>
+            </div>
+            <div className="bg-card-app border border-app rounded-2xl p-5 shadow-sm">
+              <div className="flex items-center gap-2 text-amber-600">
+                <Clock className="w-3.5 h-3.5" />
+                <span className="text-[10px] uppercase font-bold tracking-widest">Menunggu Pembayaran</span>
+              </div>
+              <p className="text-2xl font-bold text-main mt-2">{rupiah(stats.pendingTotal)}</p>
+              <p className="text-[10px] text-muted-app mt-1">{stats.pendingCount} QR belum dibayar</p>
+            </div>
+            <div className="bg-card-app border border-app rounded-2xl p-5 shadow-sm">
+              <div className="flex items-center gap-2 text-rose-500">
+                <QrCode className="w-3.5 h-3.5" />
+                <span className="text-[10px] uppercase font-bold tracking-widest">QRIS Dibuat</span>
+              </div>
+              <p className="text-2xl font-bold text-main mt-2">{payments.length}</p>
+              <p className="text-[10px] text-muted-app mt-1">total QR yang pernah dibuat AI</p>
+            </div>
+          </div>
+        )}
+
         {loading ? (
           <div className="flex justify-center py-20">
             <Loader2 className="w-8 h-8 animate-spin text-blue-600" />
@@ -97,6 +180,7 @@ export default function OrdersPage() {
                   <th className="px-5 py-3">Alamat</th>
                   <th className="px-5 py-3">Bot</th>
                   <th className="px-5 py-3">Tanggal</th>
+                  <th className="px-5 py-3">Pembayaran</th>
                   <th className="px-5 py-3">Status</th>
                 </tr>
               </thead>
@@ -119,6 +203,27 @@ export default function OrdersPage() {
                     <td className="px-5 py-3 text-[11px] text-muted-app">{order.bot_name}</td>
                     <td className="px-5 py-3 text-[11px] text-muted-app whitespace-nowrap">
                       {new Date(order.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                    </td>
+                    <td className="px-5 py-3 whitespace-nowrap">
+                      {(() => {
+                        const pay = paymentForOrder(order);
+                        if (!pay) return <span className="text-[10px] text-muted-app">-</span>;
+                        if (pay.status === 'paid') return (
+                          <span className="text-[10px] font-bold rounded-full px-2.5 py-1 bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600">
+                            Lunas • {rupiah(pay.amount)}
+                          </span>
+                        );
+                        if (pay.status === 'pending') return (
+                          <span className="text-[10px] font-bold rounded-full px-2.5 py-1 bg-amber-100 dark:bg-amber-900/40 text-amber-600">
+                            Menunggu • {rupiah(pay.amount)}
+                          </span>
+                        );
+                        return (
+                          <span className="text-[10px] font-bold rounded-full px-2.5 py-1 bg-red-100 dark:bg-red-900/40 text-red-500">
+                            {pay.status} • {rupiah(pay.amount)}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-5 py-3">
                       <select value={order.status}

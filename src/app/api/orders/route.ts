@@ -38,12 +38,20 @@ export async function GET() {
   const botIds = (bots || []).map(b => b.id);
   if (botIds.length === 0) return NextResponse.json([]);
 
-  const { data, error } = await supabaseAdmin
-    .from('orders')
-    .select('*')
-    .in('bot_id', botIds)
-    .order('created_at', { ascending: false })
-    .limit(200);
+  const [{ data, error }, { data: payments }] = await Promise.all([
+    supabaseAdmin
+      .from('orders')
+      .select('*')
+      .in('bot_id', botIds)
+      .order('created_at', { ascending: false })
+      .limit(200),
+    supabaseAdmin
+      .from('payments')
+      .select('id, conversation_id, amount, status, paid_at, created_at')
+      .in('bot_id', botIds)
+      .order('created_at', { ascending: false })
+      .limit(500),
+  ]);
 
   if (error) return NextResponse.json({ error: error.message }, { status: 400 });
 
@@ -51,7 +59,22 @@ export async function GET() {
   for (const b of bots || []) botNames[b.id] = b.name;
   const withBot = (data || []).map(o => ({ ...o, bot_name: botNames[o.bot_id] || '-' }));
 
-  return NextResponse.json(withBot);
+  // Ringkasan untuk kartu di atas tabel Orders
+  const byStatus: Record<string, number> = {};
+  for (const o of withBot) byStatus[o.status] = (byStatus[o.status] || 0) + 1;
+
+  const paid = (payments || []).filter(p => p.status === 'paid');
+  const pending = (payments || []).filter(p => p.status === 'pending');
+  const stats = {
+    totalOrders: withBot.length,
+    byStatus,
+    paidCount: paid.length,
+    paidTotal: paid.reduce((sum, p) => sum + Number(p.amount || 0), 0),
+    pendingCount: pending.length,
+    pendingTotal: pending.reduce((sum, p) => sum + Number(p.amount || 0), 0),
+  };
+
+  return NextResponse.json({ orders: withBot, payments: payments || [], stats });
 }
 
 export async function PATCH(req: NextRequest) {
