@@ -209,7 +209,15 @@ async function startSession(botId: string) {
                            msg.message.extendedTextMessage?.text ||
                            '';
         const senderName = msg.pushName || 'User';
-        const senderPhone = remoteJid.split('@')[0];
+        // Chat ber-LID (alias privasi WA): remoteJid = xxx@lid, nomor telepon
+        // aslinya ada di remoteJidAlt. Identitas ke webhook harus nomor asli —
+        // kalau pakai angka LID, outbound via /send (notifikasi pembayaran,
+        // balasan manual, follow-up) terkirim ke nomor yang tidak ada.
+        const altJid = (msg.key as any).remoteJidAlt as string | undefined;
+        const phoneJid = remoteJid.endsWith('@s.whatsapp.net')
+            ? remoteJid
+            : (altJid?.endsWith('@s.whatsapp.net') ? altJid : remoteJid);
+        const senderPhone = phoneJid.split('@')[0];
 
         if (!messageText) return;
 
@@ -398,7 +406,9 @@ http.createServer((req, res) => {
                     throw new Error('Session not connected');
                 }
 
-                const jid = data.to.includes('@s.whatsapp.net') ? data.to : `${data.to}@s.whatsapp.net`;
+                // `to` boleh nomor polos atau JID utuh (mis. xxx@lid) — jangan
+                // tempeli @s.whatsapp.net kalau sudah berbentuk JID
+                const jid = data.to.includes('@') ? data.to : `${data.to}@s.whatsapp.net`;
                 await session.sock.sendMessage(jid, { text: data.text });
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
