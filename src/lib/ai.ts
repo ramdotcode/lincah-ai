@@ -6,19 +6,38 @@ import * as Sentry from '@sentry/nextjs';
 import { buildToolSchemas, executeTool, ToolContext } from '@/lib/tools';
 import { BUBBLE_INSTRUCTION, splitBubbles, joinBubbles } from '@/lib/bubbles';
 
+// 'main' = balasan utama (70B-class), 'fast' = classifier YES/NO (8B-class)
+type ModelTier = 'main' | 'fast';
+
+interface ProviderConfig {
+  name: string;
+  baseUrl: string;
+  apiKey: string | undefined;
+  models: Record<ModelTier, string>;
+  // Param tambahan per tier yang hanya berlaku untuk provider ini (mis.
+  // reasoning_effort di Groq); payload pemanggil tetap menang bila bentrok.
+  extraParams?: Partial<Record<ModelTier, Record<string, unknown>>>;
+}
+
 // Rantai fallback provider — semua OpenAI-compatible, urutan = prioritas.
 // Groq (utama, tercepat) → Cerebras (free tier cepat) → OpenRouter (model :free).
 // Nvidia NIM sengaja tidak dipakai (latensi terlalu tinggi).
 // Provider tanpa API key di env otomatis dilewati.
-const PROVIDERS = [
+const PROVIDERS: ProviderConfig[] = [
   {
+    // Groq menghapus llama-3.3-70b-versatile & llama-3.1-8b-instant (Aug 2026);
+    // katalog tersisa gpt-oss-120b/20b & qwen3.6-27b.
     name: 'groq',
     baseUrl: 'https://api.groq.com/openai/v1',
     apiKey: process.env.GROQ_API_KEY,
-    models: { main: 'llama-3.3-70b-versatile', fast: 'llama-3.1-8b-instant' },
+    models: { main: 'openai/gpt-oss-120b', fast: 'qwen/qwen3.6-27b' },
+    // Keduanya model reasoning: qwen menulis <think> ke content bila reasoning
+    // tidak dimatikan — classifier YES/NO (max_tokens kecil) jadi kosong;
+    // gpt-oss aman (reasoning di field terpisah) tapi effort low hemat token.
+    extraParams: { main: { reasoning_effort: 'low' }, fast: { reasoning_effort: 'none' } },
   },
   {
-    // Free tier Cerebras (Jul 2026) hanya: gpt-oss-120b, zai-glm-4.7, gemma-4-31b
+    // Free tier Cerebras (Aug 2026) hanya: gpt-oss-120b, gemma-4-31b
     // (5 RPM / 30K TPM / 1M token per hari per model)
     name: 'cerebras',
     baseUrl: 'https://api.cerebras.ai/v1',
@@ -26,17 +45,14 @@ const PROVIDERS = [
     models: { main: 'gpt-oss-120b', fast: 'gemma-4-31b' },
   },
   {
-    // Model :free OpenRouter (20 RPM / 200 req per hari); llama-3.3-70b:free
-    // dihapus 19 Jul 2026, jadi pakai gpt-oss & llama kecil
+    // Model :free OpenRouter (20 RPM / 200 req per hari); gpt-oss-20b:free &
+    // llama-3.2-3b:free dihapus Aug 2026 → ganti GLM (tool-capable) & gemma
     name: 'openrouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     apiKey: process.env.OPENROUTER_API_KEY,
-    models: { main: 'openai/gpt-oss-20b:free', fast: 'meta-llama/llama-3.2-3b-instruct:free' },
+    models: { main: 'z-ai/glm-5.2:free', fast: 'google/gemma-4-26b-a4b-it:free' },
   },
 ];
-
-// 'main' = balasan utama (70B-class), 'fast' = classifier YES/NO (8B-class)
-type ModelTier = 'main' | 'fast';
 
 interface ChatResult {
   data: any;        // JSON respons OpenAI-compatible (choices, usage, ...)
@@ -45,7 +61,7 @@ interface ChatResult {
 }
 
 async function callProvider(
-  provider: (typeof PROVIDERS)[number],
+  provider: ProviderConfig,
   tier: ModelTier,
   payload: any
 ): Promise<ChatResult> {
@@ -56,7 +72,7 @@ async function callProvider(
       'Content-Type': 'application/json',
       'Authorization': `Bearer ${provider.apiKey}`,
     },
-    body: JSON.stringify({ model, ...payload }),
+    body: JSON.stringify({ model, ...(provider.extraParams?.[tier] ?? {}), ...payload }),
   });
 
   if (!res.ok) {
