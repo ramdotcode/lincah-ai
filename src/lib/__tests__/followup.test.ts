@@ -4,6 +4,7 @@ import {
   renderFollowupTemplate,
   randomJitterMs,
   DEFAULT_FOLLOWUP_TEMPLATE,
+  FOLLOWUP_SCHEDULE_HOURS,
 } from '../followup';
 
 const NOW = new Date('2026-07-10T12:00:00Z');
@@ -17,10 +18,11 @@ const bot = {
   followup_stages: ['interested', 'negotiating'],
 };
 
+// Idle 80 jam: melewati jadwal attempt pertama (72 jam, Patch 4)
 const conv = {
   status: 'active',
   stage: 'interested',
-  last_message_at: agoHours(30),
+  last_message_at: agoHours(80),
 };
 
 describe('isFollowupCandidate', () => {
@@ -71,10 +73,39 @@ describe('isFollowupCandidate', () => {
     expect(isFollowupCandidate(conv, { ...bot, followup_stages: null }, 0, NOW)).toBe(true);
   });
 
-  it('pakai default delay 24 jam jika null', () => {
-    const b = { ...bot, followup_delay_hours: null };
-    expect(isFollowupCandidate({ ...conv, last_message_at: agoHours(23) }, b, 0, NOW)).toBe(false);
-    expect(isFollowupCandidate({ ...conv, last_message_at: agoHours(25) }, b, 0, NOW)).toBe(true);
+  it('attempt di luar jadwal: pakai default delay 24 jam jika delay bot null', () => {
+    const b = { ...bot, followup_delay_hours: null, followup_max_count: 5 };
+    expect(isFollowupCandidate({ ...conv, last_message_at: agoHours(23) }, b, 2, NOW)).toBe(false);
+    expect(isFollowupCandidate({ ...conv, last_message_at: agoHours(25) }, b, 2, NOW)).toBe(true);
+  });
+});
+
+// Patch 4 (SETUP-Ramcode-CTWA §F): follow-up H+3 lalu H+5, bukan H+3 lalu H+6
+describe('jadwal per-attempt FOLLOWUP_SCHEDULE_HOURS (Patch 4)', () => {
+  it('jadwalnya H+3 lalu 2 hari kemudian (total H+5)', () => {
+    expect(FOLLOWUP_SCHEDULE_HOURS).toEqual([72, 48]);
+  });
+
+  it('follow-up pertama menunggu 72 jam idle', () => {
+    expect(isFollowupCandidate({ ...conv, last_message_at: agoHours(71) }, bot, 0, NOW)).toBe(false);
+    expect(isFollowupCandidate({ ...conv, last_message_at: agoHours(73) }, bot, 0, NOW)).toBe(true);
+  });
+
+  it('follow-up kedua cukup menunggu 48 jam setelah yang pertama', () => {
+    expect(isFollowupCandidate({ ...conv, last_message_at: agoHours(47) }, bot, 1, NOW)).toBe(false);
+    expect(isFollowupCandidate({ ...conv, last_message_at: agoHours(49) }, bot, 1, NOW)).toBe(true);
+  });
+
+  it('jadwal menang atas followup_delay_hours bot untuk attempt yang tercakup', () => {
+    const b = { ...bot, followup_delay_hours: 24 };
+    // idle 30 jam sudah melewati delay bot (24), tapi jadwal attempt pertama 72
+    expect(isFollowupCandidate({ ...conv, last_message_at: agoHours(30) }, b, 0, NOW)).toBe(false);
+  });
+
+  it('attempt ke-3 dst jatuh kembali ke followup_delay_hours bot', () => {
+    const b = { ...bot, followup_delay_hours: 24, followup_max_count: 5 };
+    expect(isFollowupCandidate({ ...conv, last_message_at: agoHours(23) }, b, 2, NOW)).toBe(false);
+    expect(isFollowupCandidate({ ...conv, last_message_at: agoHours(25) }, b, 2, NOW)).toBe(true);
   });
 });
 

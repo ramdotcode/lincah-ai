@@ -4,6 +4,12 @@
 export const DEFAULT_FOLLOWUP_TEMPLATE =
   'Halo {nama}, sekadar menindaklanjuti percakapan kita sebelumnya. Apakah masih ada yang bisa kami bantu? 😊';
 
+// Patch 4 (SETUP-Ramcode-CTWA §F): jam idle sebelum follow-up ke-N
+// (index 0 = follow-up pertama). 72 lalu 48 = H+3, lalu H+5 — kalau delay
+// tunggal 72 dipakai berulang, follow-up kedua jatuh H+6.
+// Attempt di luar jadwal jatuh ke bot.followup_delay_hours.
+export const FOLLOWUP_SCHEDULE_HOURS = [72, 48];
+
 export interface FollowupBotConfig {
   followup_enabled: boolean | null;
   followup_delay_hours: number | null;
@@ -41,7 +47,9 @@ export function isFollowupCandidate(
   if (sentCount >= (bot.followup_max_count ?? 2)) return false;
 
   if (!conv.last_message_at) return false;
-  const delayMs = (bot.followup_delay_hours ?? 24) * 60 * 60 * 1000;
+  const delayHours =
+    FOLLOWUP_SCHEDULE_HOURS[sentCount] ?? bot.followup_delay_hours ?? 24;
+  const delayMs = delayHours * 60 * 60 * 1000;
   const idleMs = now.getTime() - new Date(conv.last_message_at).getTime();
   return idleMs >= delayMs;
 }

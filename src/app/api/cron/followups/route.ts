@@ -3,7 +3,7 @@ import * as Sentry from '@sentry/nextjs';
 import { supabaseAdmin } from '@/lib/supabase';
 import { sendTelegramMessage } from '@/lib/telegram';
 import { logEvent } from '@/lib/eventLog';
-import { isFollowupCandidate, renderFollowupTemplate, randomJitterMs } from '@/lib/followup';
+import { isFollowupCandidate, renderFollowupTemplate, randomJitterMs, FOLLOWUP_SCHEDULE_HOURS } from '@/lib/followup';
 import { generateFollowupMessage } from '@/lib/ai';
 import { sendWhatsAppViaBridge } from '@/lib/whatsapp';
 
@@ -33,7 +33,11 @@ export async function GET(req: NextRequest) {
     if (botsError) throw botsError;
 
     for (const bot of bots || []) {
-      const delayHours = bot.followup_delay_hours ?? 24;
+      // Patch 4: cutoff query pakai delay TERKECIL yang mungkin berlaku —
+      // jadwal per-attempt bisa lebih pendek dari delay bot, dan attempt
+      // lanjutan jangan tersaring di query. Gate presisi per-attempt tetap
+      // di isFollowupCandidate.
+      const delayHours = Math.min(bot.followup_delay_hours ?? 24, ...FOLLOWUP_SCHEDULE_HOURS);
       const cutoff = new Date(Date.now() - delayHours * 60 * 60 * 1000).toISOString();
       const stages = bot.followup_stages?.length ? bot.followup_stages : ['interested', 'negotiating'];
 
