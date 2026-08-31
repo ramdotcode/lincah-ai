@@ -254,6 +254,15 @@ export default function MonitorPage() {
                                 <p className="text-[10px] text-muted-app font-medium tracking-tight">
                                     Status: <span className={selectedConv.status === 'pending' ? 'text-amber-500 font-bold' : 'text-emerald-500 font-bold'}>{selectedConv.status.toUpperCase()}</span>
                                 </p>
+                                {/* Patch 5: chat dari iklan CTWA — tampilkan creative asalnya */}
+                                {selectedConv.metadata?.ad_context?.title && (
+                                    <p
+                                        className="text-[10px] text-muted-app font-medium tracking-tight truncate max-w-[260px]"
+                                        title={selectedConv.metadata.ad_context.body || selectedConv.metadata.ad_context.title}
+                                    >
+                                        📢 Dari iklan: <span className="font-bold text-main">{selectedConv.metadata.ad_context.title}</span>
+                                    </p>
+                                )}
                             </div>
                         </div>
                         <div className="flex items-center gap-2">

@@ -12,6 +12,7 @@ import { cached, cacheKeys } from '@/lib/cache';
 import { shouldUseRag, retrieveKnowledge } from '@/lib/rag';
 import { findConnectionBySessionKey, findConnectionByPhone } from '@/lib/whatsapp';
 import { ensureContactForConversation } from '@/lib/contacts';
+import { sendTelegramMessage } from '@/lib/telegram';
 
 export async function POST(req: NextRequest) {
   try {
@@ -30,6 +31,10 @@ export async function POST(req: NextRequest) {
     // But for Baileys/Local Bridge we focus on POST
 
     const { from, name, text, bot_phone, bot_id } = payload;
+    // Patch 2 (SETUP-Ramcode-CTWA §F): pesan yang DIKIRIM owner dari HP-nya
+    // sendiri diteruskan worker dengan penanda from_me. Disimpan sebagai
+    // balasan manusia + AI berhenti, TANPA memanggil AI.
+    const fromMe = payload.from_me === true;
 
     // DEV-ONLY: test error handling by setting SENTRY_TEST=true in env
     if (process.env.SENTRY_TEST === 'true' && text?.includes('TEST_SENTRY_ERROR')) {
@@ -125,6 +130,36 @@ export async function POST(req: NextRequest) {
         phone: from,
       });
       if (contactId) conv.contact_id = contactId;
+    }
+
+    // 2.6 Patch 5 (SETUP-Ramcode-CTWA §F): rekam creative iklan asal chat
+    // (CTWA) ke conversations.metadata. Disimpan SEKALI di pesan pertama,
+    // jangan ditimpa — ini kunci mengukur closing rate per creative.
+    const adContext = payload.ad_context;
+    if (adContext && typeof adContext === 'object' && !conv.metadata?.ad_context) {
+      const newMetadata = { ...(conv.metadata || {}), ad_context: adContext };
+      const { error: metaError } = await supabaseAdmin
+        .from('conversations')
+        .update({ metadata: newMetadata })
+        .eq('id', conv.id);
+      if (!metaError) conv.metadata = newMetadata;
+    }
+
+    // 2.7 Patch 2: balasan manual owner dari HP = handoff manual.
+    // Simpan ke history sebagai assistant, bump last_message_at (supaya cron
+    // follow-up tidak menimpa obrolan yang sedang jalan), set status pending
+    // (AI diam, sama seperti handoff biasa). Tidak memanggil AI, tidak membalas.
+    if (fromMe) {
+      const patch: any = {
+        history: [...(conv.history || []), { role: 'assistant', content: text }],
+        last_message_at: new Date().toISOString(),
+      };
+      if (conv.status === 'active') {
+        patch.status = 'pending';
+        patch.handoff_at = new Date().toISOString();
+      }
+      await supabaseAdmin.from('conversations').update(patch).eq('id', conv.id);
+      return NextResponse.json({ ok: true });
     }
 
     // 3. Logic based on status
@@ -313,6 +348,33 @@ export async function POST(req: NextRequest) {
     }
 
     await supabaseAdmin.from('conversations').update(updateData).eq('id', conv.id);
+
+    // 6b. Patch 1 (SETUP-Ramcode-CTWA §F): handoff di jalur WhatsApp wajib
+    // memberi tahu owner. Tanpa ini, bot diam total setelah handoff dan lead
+    // malam menggantung tanpa ada yang tahu. Notifikasi lewat Telegram pribadi
+    // (OWNER_CHAT_ID), pola sama dengan webhook Telegram langkah 8.
+    // try/catch sendiri: gagal kirim notif tidak boleh menggagalkan balasan WA.
+    if (aiResult.handoffTriggered && process.env.OWNER_CHAT_ID && process.env.TELEGRAM_BOT_TOKEN) {
+      try {
+        // Karakter markup Telegram dibuang dari SEMUA bagian dinamis: nama,
+        // stage, dan isi chat bisa mengandung *_`[ yang bikin parse Markdown
+        // gagal dan notifikasi tidak terkirim (mis. stage "lagi_digali" —
+        // underscore-nya ditukar spasi supaya tetap terbaca).
+        const scrub = (s: unknown) =>
+          String(s).replace(/[*`\[\]]/g, '').replace(/_/g, ' ');
+        const recent = (newHistory as { role: string; content: string }[])
+          .slice(-3)
+          .map((h) => `${h.role === 'assistant' ? 'Bot' : 'Dia'}: ${scrub(h.content).slice(0, 200)}`)
+          .join('\n');
+        await sendTelegramMessage(
+          process.env.TELEGRAM_BOT_TOKEN,
+          process.env.OWNER_CHAT_ID,
+          `🚨 HANDOFF WhatsApp\nNama: ${scrub(name || '-')}\nNomor: ${from}\nStage: ${scrub(conv.stage || '-')}\n\n${recent}\n\nBot sudah diam. Balas orangnya sekarang.`
+        );
+      } catch (notifError) {
+        console.error('[Handoff] Gagal kirim notifikasi owner:', notifError);
+      }
+    }
 
     // 7. Make sure classification finished (started in parallel, effectively done by now)
     await Promise.all([stagePromise, labelPromise]);

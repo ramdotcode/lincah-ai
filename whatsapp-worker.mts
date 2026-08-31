@@ -13,6 +13,7 @@ import http from 'http';
 import https from 'https';
 import fs from 'fs';
 import path from 'path';
+import { extractMessageText, extractAdContext } from './src/lib/waMessage';
 
 // Initialize Sentry early, before anything else
 if (process.env.SENTRY_DSN) {
@@ -39,6 +40,24 @@ const ALERT_TELEGRAM_CHAT_ID = process.env.ALERT_TELEGRAM_CHAT_ID;
 const DISCONNECT_TIMEOUT_MS = 2 * 60 * 1000; // 2 minutes
 const ALERT_COOLDOWN_MS = 15 * 60 * 1000; // 15 minutes
 const HEALTH_CHECK_INTERVAL_MS = 30 * 1000; // 30 seconds
+
+// Patch 2 (SETUP-Ramcode-CTWA §F): id pesan yang dikirim SISTEM (balasan bot,
+// media tool, outbound /send). Echo fromMe dari id ini di-skip; sisanya berarti
+// owner membalas MANUAL dari HP → diteruskan ke webhook dengan penanda from_me
+// supaya tersimpan di history dan AI berhenti (handoff manual).
+const botSentIds = new Set<string>();
+function trackSent(sent: any) {
+    const id = sent?.key?.id;
+    if (!id) return;
+    botSentIds.add(id);
+    // Jaga ukuran: worker hidup berhari-hari, jangan bocor memori
+    if (botSentIds.size > 2000) {
+        for (const old of botSentIds) {
+            botSentIds.delete(old);
+            if (botSentIds.size <= 1000) break;
+        }
+    }
+}
 
 // Initialize sessions directory
 if (!fs.existsSync(SESSIONS_DIR)) {
@@ -202,12 +221,40 @@ async function startSession(botId: string) {
 
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
-        if (!msg.message || msg.key.fromMe) return;
+        if (!msg.message) return;
 
         const remoteJid = msg.key.remoteJid!;
-        const messageText = msg.message.conversation ||
-                           msg.message.extendedTextMessage?.text ||
-                           '';
+
+        // Patch 2: pesan fromMe TIDAK dibuang. Echo kiriman sistem sendiri
+        // di-skip via botSentIds; sisanya = balasan manual owner dari HP.
+        const isFromMe = !!msg.key.fromMe;
+        if (isFromMe) {
+            // Baileys meng-emit echo pesan kiriman sendiri via process.nextTick
+            // DI DALAM sendMessage, jadi echo bisa tiba sebelum
+            // `trackSent(await sock.sendMessage(...))` sempat mencatat id-nya.
+            // Tunggu satu putaran event loop supaya trackSent pasti sudah jalan.
+            await new Promise((r) => setImmediate(r));
+            const msgId = msg.key.id;
+            if (msgId && botSentIds.has(msgId)) {
+                // Id sengaja TIDAK dihapus: upsert untuk pesan yang sama bisa
+                // datang lebih dari sekali (append + notify); kalau dihapus,
+                // echo kedua salah terbaca sebagai balasan manual owner.
+                return; // kiriman bot/system sendiri, sudah tercatat di webhook
+            }
+            // Grup & status bukan percakapan pelanggan
+            if (!remoteJid || remoteJid.endsWith('@g.us') || remoteJid === 'status@broadcast') return;
+        }
+
+        // Patch 3 (SETUP-Ramcode-CTWA §F): pesan tanpa teks (foto/dokumen/VN)
+        // diteruskan sebagai teks penanda, bukan didiamkan — alur preview justru
+        // MEMINTA orang kirim foto. Logika murninya di src/lib/waMessage.ts.
+        const messageText = extractMessageText(msg.message);
+        if (!messageText) return; // stiker/reaction/protokol: tetap diabaikan
+
+        // Patch 5 (SETUP-Ramcode-CTWA §F): info creative iklan asal chat (CTWA)
+        // ikut diteruskan supaya closing rate per creative bisa diukur.
+        const adContext = isFromMe ? null : extractAdContext(msg.message);
+
         const senderName = msg.pushName || 'User';
         // Chat ber-LID (alias privasi WA): remoteJid = xxx@lid, nomor telepon
         // aslinya ada di remoteJidAlt. Identitas ke webhook harus nomor asli —
@@ -218,8 +265,6 @@ async function startSession(botId: string) {
             ? remoteJid
             : (altJid?.endsWith('@s.whatsapp.net') ? altJid : remoteJid);
         const senderPhone = phoneJid.split('@')[0];
-
-        if (!messageText) return;
 
         sessionState.lastMessageAt = new Date();
 
@@ -237,7 +282,13 @@ async function startSession(botId: string) {
                     from: senderPhone,
                     name: senderName,
                     text: messageText,
-                    bot_phone: sock.user?.id.split(':')[0] || ''
+                    bot_phone: sock.user?.id.split(':')[0] || '',
+                    // Patch 2: penanda balasan manual owner dari HP — tanpa ini
+                    // webhook memperlakukannya sebagai pesan pelanggan dan AI
+                    // ikut menjawab (dua CS di satu chat).
+                    ...(isFromMe ? { from_me: true } : {}),
+                    // Patch 5: creative iklan asal chat, hanya kalau ada
+                    ...(adContext ? { ad_context: adContext } : {}),
                 })
             });
 
@@ -261,14 +312,14 @@ async function startSession(botId: string) {
                             // Jeda acak 1.2–2.5 dtk antar bubble — natural + aman dari deteksi spam
                             await new Promise((r) => setTimeout(r, 1200 + Math.random() * 1300));
                         }
-                        await sock.sendMessage(remoteJid, { text: replies[i] });
+                        trackSent(await sock.sendMessage(remoteJid, { text: replies[i] }));
                     }
                     for (const item of media) {
                         await new Promise((r) => setTimeout(r, 1200 + Math.random() * 1300));
-                        await sock.sendMessage(remoteJid, {
+                        trackSent(await sock.sendMessage(remoteJid, {
                             image: { url: item.url },
                             caption: item.caption || undefined,
-                        });
+                        }));
                     }
                 } catch (sendError) {
                     Sentry.captureException(sendError, {
@@ -409,7 +460,7 @@ http.createServer((req, res) => {
                 // `to` boleh nomor polos atau JID utuh (mis. xxx@lid) — jangan
                 // tempeli @s.whatsapp.net kalau sudah berbentuk JID
                 const jid = data.to.includes('@') ? data.to : `${data.to}@s.whatsapp.net`;
-                await session.sock.sendMessage(jid, { text: data.text });
+                trackSent(await session.sock.sendMessage(jid, { text: data.text }));
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: true }));
