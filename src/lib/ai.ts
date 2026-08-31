@@ -20,8 +20,11 @@ interface ProviderConfig {
 }
 
 // Rantai fallback provider — semua OpenAI-compatible, urutan = prioritas.
-// Groq (utama, tercepat) → Cerebras (free tier cepat) → OpenRouter (model :free).
-// Nvidia NIM sengaja tidak dipakai (latensi terlalu tinggi).
+// Groq (utama, tercepat) → Gemini (free tier per akun) → OpenRouter (:free).
+// Cerebras DIHAPUS 31 Agt 2026: akunnya menolak semua request dengan
+// payment_required ("Payment required... visit your billing tab"), dan
+// kegagalannya selalu tertelan senyap karena rantai cuma mencatat error
+// terakhir. Nvidia NIM sengaja tidak dipakai (latensi terlalu tinggi).
 // Provider tanpa API key di env otomatis dilewati.
 const PROVIDERS: ProviderConfig[] = [
   {
@@ -37,20 +40,36 @@ const PROVIDERS: ProviderConfig[] = [
     extraParams: { main: { reasoning_effort: 'low' }, fast: { reasoning_effort: 'none' } },
   },
   {
-    // Free tier Cerebras (Aug 2026) hanya: gpt-oss-120b, gemma-4-31b
-    // (5 RPM / 30K TPM / 1M token per hari per model)
-    name: 'cerebras',
-    baseUrl: 'https://api.cerebras.ai/v1',
-    apiKey: process.env.CEREBRAS_API_KEY,
-    models: { main: 'gpt-oss-120b', fast: 'gemma-4-31b' },
+    // Gemini AI Studio free tier (31 Agt 2026) — kuota per AKUN (±10-15 RPM),
+    // bukan pool bersama seperti :free OpenRouter, jadi lebih bisa diandalkan.
+    // Akun baru TIDAK bisa akses model pinned 2.5 (404 "no longer available
+    // to new users") → wajib alias -latest yang selalu menunjuk versi hidup.
+    // flash-latest (3.x, thinking) ±28 dtk & rakus token → jangan dipakai;
+    // flash-lite-latest ±1 dtk, lolos tes chat, classifier YES/NO max_tokens
+    // 12, dan tool-calling — dipakai untuk KEDUA tier.
+    name: 'gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    apiKey: process.env.GEMINI_API_KEY,
+    models: { main: 'gemini-flash-lite-latest', fast: 'gemini-flash-lite-latest' },
   },
   {
-    // Model :free OpenRouter (20 RPM / 200 req per hari); gpt-oss-20b:free &
-    // llama-3.2-3b:free dihapus Aug 2026 → ganti GLM (tool-capable) & gemma
+    // Model :free diganti 31 Agt 2026: z-ai/glm-5.2:free & gemma-4-26b:free
+    // mati (429 upstream terus-menerus, satu-satunya upstream pool-nya penuh).
+    // Pengganti dites langsung hari itu: nemotron (NVIDIA) & dots (AtlasCloud)
+    // dua-duanya tool-capable, jawab bersih, dan lolos tes classifier YES/NO
+    // max_tokens 12. Sengaja beda upstream supaya tidak tumbang berbarengan.
+    // KEDUANYA model reasoning: `reasoning.enabled: false` WAJIB — tanpa itu
+    // content kosong / bocor "thinking process" ke balasan pelanggan.
+    // Kandidat yang GAGAL tes: ling-3.0-flash-fin:free (content selalu kosong),
+    // lfm-2.5-2.6b:free (menolak param reasoning, HTTP 400).
     name: 'openrouter',
     baseUrl: 'https://openrouter.ai/api/v1',
     apiKey: process.env.OPENROUTER_API_KEY,
-    models: { main: 'z-ai/glm-5.2:free', fast: 'google/gemma-4-26b-a4b-it:free' },
+    models: { main: 'nvidia/nemotron-3.5-lightning:free', fast: 'dots-studio/dots-3-note-preview:free' },
+    extraParams: {
+      main: { reasoning: { enabled: false } },
+      fast: { reasoning: { enabled: false } },
+    },
   },
 ];
 
@@ -98,7 +117,7 @@ async function chatWithFallback(
     .filter(Boolean);
   const available = PROVIDERS.filter(p => p.apiKey && !disabled.includes(p.name));
   if (available.length === 0) {
-    throw new Error('Tidak ada API key AI yang terkonfigurasi (GROQ_API_KEY / CEREBRAS_API_KEY / OPENROUTER_API_KEY)');
+    throw new Error('Tidak ada API key AI yang terkonfigurasi (GROQ_API_KEY / OPENROUTER_API_KEY)');
   }
 
   let lastError: unknown;
