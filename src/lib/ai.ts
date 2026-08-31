@@ -4,7 +4,7 @@ if (typeof window !== 'undefined') {
 
 import * as Sentry from '@sentry/nextjs';
 import { buildToolSchemas, executeTool, ToolContext } from '@/lib/tools';
-import { BUBBLE_INSTRUCTION, splitBubbles, joinBubbles } from '@/lib/bubbles';
+import { BUBBLE_INSTRUCTION, splitBubbles, joinBubbles, scrubBotText } from '@/lib/bubbles';
 
 // 'main' = balasan utama (70B-class), 'fast' = classifier YES/NO (8B-class)
 type ModelTier = 'main' | 'fast';
@@ -264,6 +264,9 @@ ${BUBBLE_INSTRUCTION}
               }
               const toolResult = await executeTool(call.function.name, args, toolContext);
               toolCallsMade++;
+              // Jejak debug halusinasi tool (ronde 2 test bot: model menyebut
+              // angka stok yang tidak ada di hasil tool) — args & hasil dipotong
+              console.log(`[Tool] ${call.function.name}`, JSON.stringify(args).slice(0, 200), '→', String(toolResult).slice(0, 160));
               toolMessages.push({ role: 'tool', tool_call_id: call.id, content: toolResult });
             }
 
@@ -769,8 +772,9 @@ Aturan:
 
     const latencyMs = Math.round(performance.now() - startTime);
     const raw = response.choices[0]?.message?.content?.trim() || '';
-    // Buang tanda kutip pembungkus bila model menambahkannya
-    const message = raw.replace(/^["']|["']$/g, '').trim() || null;
+    // Buang tanda kutip pembungkus bila model menambahkannya; scrub tipografi
+    // terlarang (em dash dll.) sama seperti balasan utama di splitBubbles
+    const message = scrubBotText(raw.replace(/^["']|["']$/g, '')).trim() || null;
 
     return {
       message,

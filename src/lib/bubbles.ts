@@ -19,6 +19,22 @@ Tiap pesan harus MELANJUTKAN isi — JANGAN PERNAH mengulang, menulis ulang, ata
 Jangan pakai ${BUBBLE_DELIMITER} untuk jawaban pendek, dan jangan memecah daftar harga/langkah yang lebih jelas dibaca utuh dalam satu pesan.
 Jika instruksi perilaku di atas mengatur gaya pengiriman pesan secara berbeda (misal melarang memecah pesan atau menyuruh selalu memecah), IKUTI instruksi perilaku tersebut.`;
 
+// Karakter tipografi yang dilarang di output bot (gaya ketikan WA, lihat
+// system prompt). Ronde 1 test membuktikan larangan di prompt bisa dilanggar
+// model (em dash di S2, U+2011 di S3/S5) — jadi dibersihkan deterministik di
+// kode. HANYA untuk output bot; pesan pelanggan yang disimpan jangan disentuh.
+export function scrubBotText(text: string): string {
+  return text
+    // em dash (—, dengan/tanpa spasi) → koma; [^\S\n] = spasi horizontal saja,
+    // supaya pemisah baris/bubble tidak ikut tertelan
+    .replace(/[^\S\n]*—[^\S\n]*/g, ', ')
+    .replace(/–/g, '-')             // en dash (–) → strip biasa
+    .replace(/‑/g, '-')             // non-breaking hyphen (‑) → strip biasa
+    .replace(/,(\s*,)+/g, ',')           // koma dobel sisa substitusi
+    .replace(/(^|\n)\s*,\s*/g, '$1')     // koma yatim di awal baris
+    .replace(/ {2,}/g, ' ');             // spasi dobel
+}
+
 // Ambang kemiripan (Jaccard kata) untuk menganggap dua bubble duplikat.
 const DUPLICATE_SIMILARITY = 0.8;
 
@@ -43,12 +59,15 @@ function similarity(a: string, b: string): number {
 // mengulang paragraf yang sama dengan parafrase kecil). Selalu mengembalikan
 // minimal 1 bubble (teks asli ter-trim) — never empty.
 export function splitBubbles(text: string, maxBubbles: number = MAX_BUBBLES): string[] {
-  const parts = text
+  // Titik terpusat pembersihan output bot: semua balasan (semua channel)
+  // lewat sini sebelum dikirim/disimpan.
+  const clean = scrubBotText(text);
+  const parts = clean
     .split(BUBBLE_DELIMITER)
     .map(p => p.trim())
     .filter(Boolean);
 
-  if (parts.length === 0) return [text.trim()];
+  if (parts.length === 0) return [clean.trim()];
 
   // Buang bubble yang duplikat/nyaris duplikat dengan bubble yang sudah lolos
   const deduped: string[] = [];

@@ -1,5 +1,54 @@
 import { describe, it, expect } from 'vitest';
-import { splitBubbles, joinBubbles, BUBBLE_DELIMITER, MAX_BUBBLES } from '../bubbles';
+import { splitBubbles, joinBubbles, scrubBotText, BUBBLE_DELIMITER, MAX_BUBBLES } from '../bubbles';
+
+// Ronde 1 test bot: model melanggar larangan em dash di prompt (S2) dan
+// menulis U+2011 (S3/S5) — pembersihan tipografi wajib deterministik di kode.
+describe('scrubBotText', () => {
+  it('em dash dengan spasi jadi koma', () => {
+    expect(scrubBotText('Landing Page paling pas — satu halaman fokus jualan'))
+      .toBe('Landing Page paling pas, satu halaman fokus jualan');
+  });
+
+  it('em dash tanpa spasi jadi koma', () => {
+    expect(scrubBotText('cepat—murah—jadi')).toBe('cepat, murah, jadi');
+  });
+
+  it('en dash jadi strip biasa', () => {
+    expect(scrubBotText('revisi 3–5 kali')).toBe('revisi 3-5 kali');
+  });
+
+  it('non-breaking hyphen U+2011 jadi strip biasa', () => {
+    expect(scrubBotText('boleh kirim foto‑foto yang ada')).toBe('boleh kirim foto-foto yang ada');
+  });
+
+  it('kombinasi semua karakter sekaligus tetap natural', () => {
+    expect(scrubBotText('Paketnya lengkap — domain, hosting 1–2 tahun, dan di‑upgrade kapan pun'))
+      .toBe('Paketnya lengkap, domain, hosting 1-2 tahun, dan di-upgrade kapan pun');
+  });
+
+  it('tidak menghasilkan koma dobel bila em dash bertemu koma', () => {
+    expect(scrubBotText('murah — , cepat')).toBe('murah, cepat');
+  });
+
+  it('em dash di awal baris tidak meninggalkan koma yatim', () => {
+    expect(scrubBotText('— poin pertama\n— poin kedua')).toBe('poin pertama\npoin kedua');
+  });
+
+  it('teks bersih tidak berubah', () => {
+    const s = 'Halo kak, makasih udah chat 🙌 Websitenya buat usaha apa kak?';
+    expect(scrubBotText(s)).toBe(s);
+  });
+});
+
+describe('splitBubbles memakai scrubber (titik terpusat semua channel)', () => {
+  it('bubble hasil split sudah bebas em dash/en dash/U+2011', () => {
+    const out = splitBubbles(`Paket pas — Landing Page${BUBBLE_DELIMITER}Foto‑foto bisa 1–2 hari`);
+    expect(out).toEqual(['Paket pas, Landing Page', 'Foto-foto bisa 1-2 hari']);
+    for (const b of out) {
+      expect(b).not.toMatch(/[—–‑]/);
+    }
+  });
+});
 
 describe('splitBubbles', () => {
   it('mengembalikan satu bubble untuk teks tanpa delimiter', () => {
@@ -37,7 +86,9 @@ describe('splitBubbles', () => {
     const b1 = 'Selamat datang di WebCraft Studio! Kami adalah agensi pembuatan website yang berdiri sejak 2021 di Jakarta Selatan. Apa yang Anda butuhkan hari ini?';
     const b2 = 'Selamat datang di WebCraft Studio! Kami adalah agensi pembuatan website yang berdiri sejak 2021 di Jakarta Selatan. Apa yang Anda cari hari ini?';
     const b3 = 'Kami punya Paket Starter, Paket Bisnis, dan Paket Toko Online — mau saya jelaskan?';
-    expect(splitBubbles([b1, b2, b3].join(BUBBLE_DELIMITER))).toEqual([b1, b3]);
+    // b3 ikut tersaring scrubber tipografi: em dash → koma
+    const b3Clean = 'Kami punya Paket Starter, Paket Bisnis, dan Paket Toko Online, mau saya jelaskan?';
+    expect(splitBubbles([b1, b2, b3].join(BUBBLE_DELIMITER))).toEqual([b1, b3Clean]);
   });
 
   it('membuang bubble duplikat persis', () => {

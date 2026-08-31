@@ -150,7 +150,18 @@ export function buildToolSchemas(tools: BotTool[]): any[] {
 export function searchProducts(products: ProductRow[], query: string): ProductRow[] {
   const q = query.trim().toLowerCase();
   if (!q) return [];
-  return products.filter(p => p.name && p.name.toLowerCase().includes(q));
+  const bySubstring = products.filter(p => p.name && p.name.toLowerCase().includes(q));
+  if (bySubstring.length) return bySubstring;
+  // Fallback kata-per-kata (ronde 2 test bot): query model "slot pengerjaan
+  // bulan ini" BUKAN substring dari "Slot pengerjaan Landing Page bulan ini",
+  // sehingga tool menjawab tidak ditemukan dan model mengarang angka stok.
+  // Cocok bila SEMUA kata query muncul di nama produk (urutan bebas).
+  const words = q.split(/\s+/).filter(w => w.length >= 3);
+  if (!words.length) return [];
+  return products.filter(p => {
+    const name = (p.name || '').toLowerCase();
+    return words.every(w => name.includes(w));
+  });
 }
 
 export function formatStockResult(matches: ProductRow[], query: string): string {

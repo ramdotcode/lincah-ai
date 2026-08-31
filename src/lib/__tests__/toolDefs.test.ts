@@ -52,6 +52,20 @@ describe('searchProducts', () => {
     expect(searchProducts(products, '  ')).toHaveLength(0);
   });
 
+  // Ronde 2 test bot: query "slot pengerjaan bulan ini" gagal substring-match
+  // "Slot pengerjaan Landing Page bulan ini" → tool bilang tidak ada → model
+  // mengarang angka. Fallback kata-per-kata menutup celah itu.
+  it('fallback kata-per-kata bila substring tidak ketemu', () => {
+    const slots = [
+      { name: 'Slot preview gratis minggu ini', price: 0, stock: 3 },
+      { name: 'Slot pengerjaan Landing Page bulan ini', price: 949000, stock: 4 },
+      { name: 'Slot pengerjaan Website Bisnis bulan ini', price: 2490000, stock: 2 },
+    ];
+    expect(searchProducts(slots, 'slot pengerjaan bulan ini').map(p => p.stock)).toEqual([4, 2]);
+    expect(searchProducts(slots, 'slot preview minggu ini')).toHaveLength(1);
+    expect(searchProducts(slots, 'kaos hitam bulan ini')).toHaveLength(0);
+  });
+
   it('formats found and not-found results', () => {
     expect(formatStockResult(searchProducts(products, 'hoodie'), 'hoodie')).toContain('Hoodie Navy');
     expect(formatStockResult([], 'jaket')).toContain('tidak ditemukan');
