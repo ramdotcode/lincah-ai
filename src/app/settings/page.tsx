@@ -44,8 +44,10 @@ function SettingsContent() {
   const [testMessage, setTestMessage] = useState('');
   const [isTestLoading, setIsTestLoading] = useState(false);
   const [handoffOccurred, setHandoffOccurred] = useState(false);
+  // `welcome: true` = sapaan pembuka, bukan balasan AI. Penanda ini dikirim ke
+  // /api/ai/test supaya tidak ikut dihitung sebagai balasan oleh max_ai_replies.
   const [chatHistory, setChatHistory] = useState([
-    { role: 'assistant', content: 'Hi! I am your AI assistant. How can I help you today?' }
+    { role: 'assistant', content: 'Hi! I am your AI assistant. How can I help you today?', welcome: true }
   ]);
 
   const fetchBot = async () => {
@@ -61,7 +63,7 @@ function SettingsContent() {
         
         // If bot has a welcome message, update history
         if (found?.welcome_message) {
-            setChatHistory([{ role: 'assistant', content: found.welcome_message }]);
+            setChatHistory([{ role: 'assistant', content: found.welcome_message, welcome: true }]);
         }
       }
     } finally {
@@ -155,9 +157,9 @@ function SettingsContent() {
 
   const handleResetChat = () => {
     if (bot?.welcome_message) {
-        setChatHistory([{ role: 'assistant', content: bot.welcome_message }]);
+        setChatHistory([{ role: 'assistant', content: bot.welcome_message, welcome: true }]);
     } else {
-        setChatHistory([{ role: 'assistant', content: 'Hi! I am your AI assistant. How can I help you today?' }]);
+        setChatHistory([{ role: 'assistant', content: 'Hi! I am your AI assistant. How can I help you today?', welcome: true }]);
     }
     setTestMessage('');
     setHandoffOccurred(false);
@@ -329,6 +331,30 @@ function SettingsContent() {
                         onChange={(e) => setBot({...bot, transfer_condition: e.target.value})}
                         placeholder="User asks for human help, expresses frustration, or talks about complex issues..."
                         className="w-full bg-white dark:bg-zinc-900 border border-app rounded-2xl p-4 text-sm text-main focus:border-amber-400 outline-none transition-all shadow-sm"
+                    />
+                </div>
+
+                {/* Batas balasan AI (deterministik, bukan lewat classifier) */}
+                <div className="space-y-4">
+                    <div className="flex flex-col gap-1">
+                        <h3 className="text-main font-bold text-sm flex items-center gap-2">
+                            <HandMetal className="w-4 h-4 text-rose-500" />
+                            Maks balasan AI sebelum handoff
+                        </h3>
+                        <p className="text-[11px] text-muted-app leading-relaxed">
+                            Setelah bot mengirim sebanyak ini balasan, balasan berikutnya dipaksa jadi
+                            yang terakhir: bot pamit lalu chat diserahkan ke manusia. Dihitung di kode,
+                            jadi tidak bergantung pada Transfer Conditions.
+                            Kosongkan atau isi <span className="font-bold">0</span> untuk tanpa batas.
+                        </p>
+                    </div>
+                    <input
+                        type="number"
+                        min={0}
+                        value={bot.max_ai_replies ?? ''}
+                        onChange={(e) => setBot({...bot, max_ai_replies: e.target.value === '' ? null : Number(e.target.value)})}
+                        placeholder="Tanpa batas"
+                        className="w-full md:w-48 bg-white dark:bg-zinc-900 border border-app rounded-2xl p-4 text-sm text-main focus:border-rose-400 outline-none transition-all shadow-sm"
                     />
                 </div>
 

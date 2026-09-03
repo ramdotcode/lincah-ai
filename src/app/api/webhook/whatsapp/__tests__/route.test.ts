@@ -163,9 +163,12 @@ describe('Patch 2: payload from_me (balasan manual owner dari HP)', () => {
     const updates = convUpdates();
     expect(updates).toHaveLength(1);
     const patch = updates[0].payload;
+    // `manual: true` menandai ini balasan owner, bukan balasan AI — supaya
+    // tidak menghabiskan kuota max_ai_replies.
     expect(patch.history[patch.history.length - 1]).toEqual({
       role: 'assistant',
       content: 'siap kak, aku kerjakan preview-nya',
+      manual: true,
     });
     expect(patch.status).toBe('pending');
     expect(patch.handoff_at).toBeTruthy();
@@ -179,7 +182,7 @@ describe('Patch 2: payload from_me (balasan manual owner dari HP)', () => {
     const patch = convUpdates()[0].payload;
     expect(patch.status).toBeUndefined();
     expect(patch.handoff_at).toBeUndefined();
-    expect(patch.history[0]).toEqual({ role: 'assistant', content: 'ok' });
+    expect(patch.history[0]).toEqual({ role: 'assistant', content: 'ok', manual: true });
   });
 });
 
@@ -272,5 +275,75 @@ describe('Patch 5: ad_context CTWA disimpan ke conversations.metadata', () => {
 
     const metaUpdate = convUpdates().find((u) => u.payload.metadata);
     expect(metaUpdate).toBeUndefined();
+  });
+});
+
+describe('Batas balasan AI (bots.max_ai_replies)', () => {
+  const payload = { bot_id: 'bot-1', from: '6281234567890', name: 'Budi', text: 'boleh nawar ga kak?' };
+
+  // Dua balasan inti bot sudah keluar (sapa + harga)
+  const historyDuaBalasan = [
+    { role: 'user', content: 'halo' },
+    { role: 'assistant', content: 'usahanya apa kak?' },
+    { role: 'user', content: 'berapa harganya?' },
+    { role: 'assistant', content: 'Rp949.000 kak, mau preview?' },
+  ];
+
+  function forceHandoffArg() {
+    return h.processMessage.mock.calls[0]?.[7];
+  }
+
+  it('kuota belum habis → processMessage dipanggil tanpa force', async () => {
+    h.tables.bots = { ...baseBot, max_ai_replies: 2 };
+    h.tables.conversations = { ...baseConv, history: [{ role: 'user', content: 'halo' }] };
+
+    await POST(makeReq(payload));
+
+    expect(forceHandoffArg()).toEqual({ forceHandoff: false });
+  });
+
+  it('kuota habis → force, status pending, dan notif Telegram terkirim', async () => {
+    process.env.OWNER_CHAT_ID = '99887766';
+    process.env.TELEGRAM_BOT_TOKEN = 'token-tg';
+    h.tables.bots = { ...baseBot, max_ai_replies: 2 };
+    h.tables.conversations = { ...baseConv, history: [...historyDuaBalasan] };
+    // processMessage yang di-force selalu mengembalikan handoffTriggered true
+    h.processMessage.mockResolvedValue({ ...aiResultOk, handoffTriggered: true });
+
+    const res = await POST(makeReq(payload));
+    const body = await res.json();
+
+    expect(forceHandoffArg()).toEqual({ forceHandoff: true });
+    expect(body.reply).toBe('Siap kak 🙏');
+
+    const statusPatch = convUpdates().find((u) => u.payload.status === 'pending');
+    expect(statusPatch).toBeTruthy();
+    expect(statusPatch!.payload.handoff_at).toBeTruthy();
+    expect(h.sendTelegramMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('follow-up otomatis tidak menghabiskan kuota', async () => {
+    h.tables.bots = { ...baseBot, max_ai_replies: 3 };
+    h.tables.conversations = {
+      ...baseConv,
+      history: [...historyDuaBalasan, { role: 'assistant', content: 'masih dipertimbangkan kak?', followup: true }],
+    };
+
+    await POST(makeReq(payload));
+
+    // 3 entri assistant, tapi satu di antaranya follow-up → baru 2 balasan
+    expect(forceHandoffArg()).toEqual({ forceHandoff: false });
+  });
+
+  it('max_ai_replies null (bot lain) → tidak pernah di-force', async () => {
+    h.tables.bots = { ...baseBot, max_ai_replies: null };
+    h.tables.conversations = {
+      ...baseConv,
+      history: [...historyDuaBalasan, ...historyDuaBalasan],
+    };
+
+    await POST(makeReq(payload));
+
+    expect(forceHandoffArg()).toEqual({ forceHandoff: false });
   });
 });

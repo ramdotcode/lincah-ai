@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Update history in DB
-    const newHistory = [...(conv.history || []), { role: 'assistant', content: text }];
+    const newHistory = [...(conv.history || []), { role: 'assistant', content: text, manual: true }];
     await supabaseAdmin
       .from('conversations')
       .update({

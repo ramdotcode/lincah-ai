@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { processMessage } from '@/lib/ai';
+import { shouldForceHandoff } from '@/lib/replyLimit';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
 import { supabaseAdmin } from '@/lib/supabase';
@@ -38,13 +39,29 @@ export async function POST(req: NextRequest) {
         }
     }
 
+    // Batas balasan AI (bots.max_ai_replies) ikut berlaku di Playground supaya
+    // perilakunya bisa diuji persis seperti di WhatsApp. Welcome message di
+    // history ditandai `welcome: true` oleh UI, jadi tidak ikut dihitung.
+    let maxAiReplies: number | null = null;
+    if (botId) {
+      const { data: botRow } = await supabaseAdmin
+        .from('bots')
+        .select('max_ai_replies')
+        .eq('id', botId)
+        .maybeSingle();
+      maxAiReplies = botRow?.max_ai_replies ?? null;
+    }
+    const forceHandoff = shouldForceHandoff(history || [], maxAiReplies);
+
     const result = await processMessage(
       systemPrompt,
       history || [],
       message,
       transferCondition || '',
       knowledgeSources,
-      aiModel || 'groq'
+      aiModel || 'groq',
+      undefined,
+      { forceHandoff }
     );
 
     // Catat sesi Playground ke event_logs juga (fire-and-forget) supaya token

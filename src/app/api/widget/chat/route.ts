@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { supabaseAdmin } from '@/lib/supabase';
 import { processMessage } from '@/lib/ai';
+import { shouldForceHandoff } from '@/lib/replyLimit';
 import { logEvent } from '@/lib/eventLog';
 import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
 import { runStageClassification } from '@/lib/stageClassifier';
@@ -222,6 +223,9 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Batas balasan AI (bots.max_ai_replies) — lihat replyLimit.ts
+    const forceHandoff = shouldForceHandoff(conv.history || [], bot.max_ai_replies);
+
     // 5. AI
     const aiResult = await processMessage(
       systemPrompt,
@@ -230,7 +234,8 @@ export async function POST(req: NextRequest) {
       bot.transfer_condition,
       knowledgeSources,
       aiModel,
-      toolContext
+      toolContext,
+      { forceHandoff }
     );
 
     logEvent({

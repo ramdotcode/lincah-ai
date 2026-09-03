@@ -48,6 +48,11 @@ export async function POST(req: NextRequest) {
     welcome_message: body.welcome_message,
     transfer_condition: body.transfer_condition,
     stop_ai_after_handoff: body.stop_ai_after_handoff,
+    // Batas balasan AI per percakapan; null/0 = tanpa batas (lihat replyLimit.ts)
+    max_ai_replies:
+      body.max_ai_replies === '' || body.max_ai_replies === null || body.max_ai_replies === undefined
+        ? null
+        : Number(body.max_ai_replies),
     silent_handoff: body.silent_handoff,
     ai_model: body.ai_model,
     ai_label: body.ai_label,

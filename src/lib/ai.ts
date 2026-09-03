@@ -6,6 +6,7 @@ import * as Sentry from '@sentry/nextjs';
 import { buildToolSchemas, executeTool, ToolContext } from '@/lib/tools';
 import { BUBBLE_INSTRUCTION, splitBubbles, joinBubbles, scrubBotText } from '@/lib/bubbles';
 import { nowWibLabel, wibHour } from '@/lib/time';
+import { matchesHandoffPhrase } from '@/lib/replyLimit';
 
 // 'main' = balasan utama (70B-class), 'fast' = classifier YES/NO (8B-class)
 type ModelTier = 'main' | 'fast';
@@ -138,6 +139,11 @@ async function chatWithFallback(
 export interface Message {
   role: 'user' | 'assistant' | 'system';
   content: string;
+  // Penanda entri history yang tersimpan sebagai `assistant` tapi bukan balasan
+  // AI atas pesan lead — tidak ikut dihitung oleh countAiReplies (replyLimit.ts).
+  followup?: boolean;   // follow-up otomatis (cron/followups)
+  manual?: boolean;     // balasan manual owner dari HP (from_me)
+  welcome?: boolean;    // welcome message Playground/widget
 }
 
 export interface KnowledgeSource {
@@ -170,6 +176,18 @@ const MAIN_MAX_TOKENS = 1024;
 // Batas putaran tool: model boleh memanggil tools maksimal 3 ronde per balasan
 const MAX_TOOL_ROUNDS = 3;
 
+// Disisipkan saat batas balasan (bots.max_ai_replies) tercapai: balasan ini
+// wajib jadi yang terakhir, jadi model diberi tahu supaya pamit — bukan
+// dibiarkan menjawab panjang lalu percakapan dipotong sepihak oleh kode.
+const LAST_REPLY_INSTRUCTION = `### INI BALASAN TERAKHIRMU
+Setelah pesan ini kamu berhenti dan Rama yang melanjutkan. Balas maksimal 2 kalimat: tanggapi singkat pesan pelanggan tanpa menambah informasi baru, lalu pamit bahwa kamu menyambungkan ke Rama, dengan janji waktu sesuai blok WAKTU SEKARANG. Jangan bertanya balik.`;
+
+export interface ProcessMessageOptions {
+  // Batas balasan sudah tercapai: sisipkan instruksi pamit, lewati handoff
+  // checker (hemat 1 request ke model `fast`), dan handoff dipastikan terjadi.
+  forceHandoff?: boolean;
+}
+
 export async function processMessage(
   systemPrompt: string,
   history: Message[],
@@ -177,8 +195,10 @@ export async function processMessage(
   transferCondition: string,
   knowledgeSources: KnowledgeSource[] = [],
   aiModel: string = 'groq',
-  toolContext?: ToolContext
+  toolContext?: ToolContext,
+  opts?: ProcessMessageOptions
 ): Promise<ProcessMessageResult> {
+  const forceHandoff = opts?.forceHandoff === true;
   // 0. Limit history to save tokens
   const trimmedHistory = history.slice(-10);
 
@@ -210,7 +230,7 @@ export async function processMessage(
   const hourWib = wibHour();
   const enhancedSystemPrompt = `
 ${systemPrompt}
-
+${forceHandoff ? `\n${LAST_REPLY_INSTRUCTION}\n` : ''}
 ### WAKTU SEKARANG
 ${nowWibLabel()}. ${hourWib >= 8 && hourWib < 21 ? 'Ini jam kerja.' : 'Ini di luar jam kerja (jam kerja 08.00-21.00 WIB).'}
 
@@ -335,8 +355,9 @@ ${BUBBLE_INSTRUCTION}
         throw error;
       }
     })(),
-    // 2. Check for handoff
-    (async () => {
+    // 2. Check for handoff — dilewati saat forceHandoff: hasilnya sudah pasti
+    // YES, jadi tidak perlu membayar 1 request ke model `fast`.
+    ...(forceHandoff ? [] : [(async () => {
       const startTime = performance.now();
       try {
         // Model kecil (tier fast) cukup untuk cek YES/NO
@@ -373,11 +394,11 @@ Reply ONLY with "YES" or "NO".`,
         });
         throw error;
       }
-    })(),
+    })()]),
   ]);
 
   let aiResponse = '';
-  let handoffTriggered = false;
+  let handoffTriggered = forceHandoff;
   let errorMessage: string | undefined;
 
   if (results[0].status === 'fulfilled') {
@@ -391,8 +412,15 @@ Reply ONLY with "YES" or "NO".`,
     aiResponse = FALLBACK_REPLY;
   }
 
-  if (results[1].status === 'fulfilled') {
-    handoffTriggered = results[1].value.data.choices[0]?.message?.content?.toUpperCase().includes('YES') || false;
+  const checkerResult = forceHandoff ? undefined : results[1];
+  if (checkerResult?.status === 'fulfilled') {
+    handoffTriggered = checkerResult.value.data.choices[0]?.message?.content?.toUpperCase().includes('YES') || false;
+  }
+
+  // Jaring pengaman: bot pamit di teks tapi checker bilang NO → tetap handoff,
+  // supaya pelanggan tidak menunggu Rama yang tidak pernah dikabari.
+  if (!handoffTriggered && matchesHandoffPhrase(aiResponse)) {
+    handoffTriggered = true;
   }
 
   // Pecah balasan menjadi bubble (penanda ||| dari BUBBLE_INSTRUCTION);

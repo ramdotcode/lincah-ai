@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import * as Sentry from '@sentry/nextjs';
 import { supabaseAdmin } from '@/lib/supabase';
 import { processMessage } from '@/lib/ai';
+import { shouldForceHandoff } from '@/lib/replyLimit';
 import { logEvent } from '@/lib/eventLog';
 import { checkRateLimit, RATE_LIMIT_REPLY } from '@/lib/rateLimit';
 import { runStageClassification } from '@/lib/stageClassifier';
@@ -151,7 +152,9 @@ export async function POST(req: NextRequest) {
     // (AI diam, sama seperti handoff biasa). Tidak memanggil AI, tidak membalas.
     if (fromMe) {
       const patch: any = {
-        history: [...(conv.history || []), { role: 'assistant', content: text }],
+        // `manual: true` supaya balasan owner tidak dihitung sebagai balasan AI
+        // oleh batas max_ai_replies (replyLimit.ts).
+        history: [...(conv.history || []), { role: 'assistant', content: text, manual: true }],
         last_message_at: new Date().toISOString(),
       };
       if (conv.status === 'active') {
@@ -283,6 +286,12 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // 4.8 Batas balasan AI (bots.max_ai_replies): begitu kuotanya habis,
+    // balasan ini dipaksa jadi yang terakhir — bot pamit lalu handoff. Dihitung
+    // di kode karena handoff checker (model `fast`) tidak bisa diandalkan
+    // menalar riwayat percakapan.
+    const forceHandoff = shouldForceHandoff(conv.history || [], bot.max_ai_replies);
+
     // 5. Process with AI (now returns latency & token metrics)
     const aiResult = await processMessage(
       systemPrompt,
@@ -291,7 +300,8 @@ export async function POST(req: NextRequest) {
       bot.transfer_condition,
       knowledgeSources,
       aiModel,
-      toolContext
+      toolContext,
+      { forceHandoff }
     );
 
     // Log event to observability (fire-and-forget)
