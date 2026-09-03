@@ -5,6 +5,7 @@ if (typeof window !== 'undefined') {
 import * as Sentry from '@sentry/nextjs';
 import { buildToolSchemas, executeTool, ToolContext } from '@/lib/tools';
 import { BUBBLE_INSTRUCTION, splitBubbles, joinBubbles, scrubBotText } from '@/lib/bubbles';
+import { nowWibLabel, wibHour } from '@/lib/time';
 
 // 'main' = balasan utama (70B-class), 'fast' = classifier YES/NO (8B-class)
 type ModelTier = 'main' | 'fast';
@@ -206,8 +207,12 @@ export async function processMessage(
   }
 
   // Construct enhanced system prompt with knowledge
+  const hourWib = wibHour();
   const enhancedSystemPrompt = `
 ${systemPrompt}
+
+### WAKTU SEKARANG
+${nowWibLabel()}. ${hourWib >= 8 && hourWib < 21 ? 'Ini jam kerja.' : 'Ini di luar jam kerja (jam kerja 08.00-21.00 WIB).'}
 
 ### BUSINESS KNOWLEDGE & CONTEXT
 The following is the specialized knowledge about the business. Use this as your primary source of truth.
